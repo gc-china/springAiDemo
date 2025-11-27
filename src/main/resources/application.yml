@@ -1,0 +1,18 @@
+server:
+  port: 8888
+spring:
+  application:
+    name: aiDemo2
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        model: deepseek-r1:latest
+
+#  ai:
+#    # ❗ 移除 alibaba 层级，直接在 ai 下配置 dashscope
+#    dashscope:
+#      api-key: sk-9b7025eed55f4cfbb4ea1dbb11bfacdc # ???? Key
+#    embedding:
+#      # ???? DashScope ??? embedding ??
+#      model: text-embedding-v1

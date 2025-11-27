@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 客服混合路由聊天界面 - 最终美化版</title>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* 全局样式与布局 */
+        body {
+            font-family: 'Google Sans', 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #F8F9FA; /* 极浅灰色背景 */
+            margin: 0;
+            padding-top: 40px;
+        }
+        #chat-container {
+            width: 760px; /* 略微拓宽 */
+            max-width: 90%;
+            background: white;
+            border-radius: 24px; /* 更大的圆角 */
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08); /* 更柔和且明显的阴影 */
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            min-height: 700px;
+        }
+        h3 {
+            color: #3C4043;
+            font-weight: 500;
+            margin-top: 0;
+            padding-bottom: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        /* 聊天气泡区域 */
+        #output-area {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px 0;
+            margin-bottom: 15px;
+            /* 保持背景干净，无边框 */
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 18px;
+            border-radius: 20px; /* 消息大圆角 */
+            max-width: 80%;
+            line-height: 1.6;
+            font-size: 16px;
+        }
+
+        /* 用户的消息：Gemini 风格的浅蓝色/焦点色 */
+        .user-message {
+            background-color: #E8F0FE; /* 浅蓝色调 */
+            color: #202124;
+            margin-left: auto;
+            border-bottom-right-radius: 8px; /* 底部小角 */
+        }
+
+        /* AI 的消息：柔和的浅灰色背景 */
+        .ai-message {
+            background-color: #F0F0F0;
+            color: #202124;
+            margin-right: auto;
+            border-bottom-left-radius: 8px; /* 底部小角 */
+        }
+
+        /* 输入区域 (核心美化部分) */
+        #input-area {
+            display: flex;
+            gap: 15px;
+            padding: 15px 25px;
+            border: 1px solid #DADCE0;
+            border-radius: 30px; /* 胶囊状输入框 */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); /* 突出输入框的层次感 */
+            transition: box-shadow 0.3s ease-in-out, border-color 0.3s;
+        }
+        /* 聚焦时的蓝色光晕效果 */
+        #input-area:focus-within {
+            border-color: #4285F4; /* 谷歌蓝边框 */
+            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.2); /* 蓝色光晕 */
+        }
+
+        #message-input {
+            flex-grow: 1;
+            padding: 0;
+            border: none;
+            outline: none;
+            font-size: 16px;
+            background: none;
+            color: #202124;
+        }
+
+        /* 发送按钮：作为图标呈现 */
+        #send-button {
+            width: 40px;
+            height: 40px;
+            background-color: #1A73E8;
+            color: white;
+            border: none;
+            border-radius: 50%; /* 圆形按钮 */
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s, opacity 0.2s;
+        }
+        #send-button:hover:not(:disabled) {
+            background-color: #1669D9;
+        }
+        #send-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        #controls {
+            margin-bottom: 20px;
+            width: 760px;
+            max-width: 90%;
+            display: flex;
+            align-items: center;
+            color: #5F6368;
+            font-size: 14px;
+        }
+        #conv-id {
+            padding: 8px;
+            border: 1px solid #DADCE0;
+            border-radius: 8px;
+            margin-left: 10px;
+            font-size: 14px;
+            color: #3C4043;
+        }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <label for="conv-id">会话ID (LocalStorage 持久化):</label>
+    <input type="text" id="conv-id" value="正在加载..." readonly style="background-color: #f0f0f0;">
+</div>
+
+<div id="chat-container">
+    <h3>AI 智能客服系统</h3>
+    <div id="output-area">
+        <div class="ai-message message">欢迎使用智能客服。系统已为您分配唯一的会话ID，请开始提问！</div>
+    </div>
+    <div id="input-area">
+        <input type="text" id="message-input" placeholder="输入您的问题，例如：年假策略？">
+        <button id="send-button">➤</button>
+    </div>
+</div>
+
+<script>
+    // 核心JS逻辑保持不变，但移除了消息中的 'AI:' 和 '你:' 标签
+    const inputElement = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const outputArea = document.getElementById('output-area');
+    const convIdInput = document.getElementById('conv-id');
+
+    let eventSource = null;
+
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
+    function getOrCreateConversationId() {
+        let convId = localStorage.getItem('persistentConversationId');
+        if (!convId) {
+            convId = generateUUID();
+            localStorage.setItem('persistentConversationId', convId);
+        }
+        convIdInput.value = convId;
+    }
+
+    function appendMessage(text, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'ai-message'}`;
+        // ❗ 移除 "AI:" 和 "你:" 标签，完全依赖 CSS 样式和位置区分发送方
+        messageDiv.innerHTML = text;
+        outputArea.appendChild(messageDiv);
+        outputArea.scrollTop = outputArea.scrollHeight;
+        return messageDiv;
+    }
+
+    function startStream(userMessage) {
+        const messageEncoded = encodeURIComponent(userMessage);
+        const conversationId = convIdInput.value;
+
+        // 确保使用正确的端口和路径
+        const url = `http://localhost:8888/three-stage/stream?msg=${messageEncoded}&conversationId=${conversationId}`;
+
+        appendMessage(userMessage, 'user');
+
+        const aiMessageContainer = appendMessage('', 'ai');
+
+        sendButton.disabled = true;
+        inputElement.disabled = true;
+
+        eventSource = new EventSource(url);
+
+        let fullResponse = '';
+
+        eventSource.onmessage = function(event) {
+            const chunk = event.data;
+
+            aiMessageContainer.innerHTML += chunk;
+            fullResponse += chunk;
+            outputArea.scrollTop = outputArea.scrollHeight;
+        };
+
+        eventSource.onerror = function(err) {
+            console.error("SSE Error:", err);
+            eventSource.close();
+
+            sendButton.disabled = false;
+            inputElement.disabled = false;
+
+            if (fullResponse.trim() === '') {
+                aiMessageContainer.innerHTML = '连接中断或模型无回复。'; // 修复空回复显示
+            }
+        };
+    }
+
+    sendButton.addEventListener('click', () => {
+        const msg = inputElement.value.trim();
+        if (msg) {
+            startStream(msg);
+            inputElement.value = '';
+        }
+    });
+
+    inputElement.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendButton.click();
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', getOrCreateConversationId);
+</script>
+</body>
+</html>
