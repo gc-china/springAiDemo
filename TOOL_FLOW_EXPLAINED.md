@@ -1,0 +1,322 @@
+# 工具自动发现和注册 - 完整流程详解
+
+## 📊 执行流程图
+
+```
+Spring 应用启动
+    ↓
+1. Spring 扫描所有 @Configuration 类
+    ↓
+2. 发现 ProductService 和 UserService
+    ↓
+3. 执行 @Bean 方法,创建 Function Bean
+    - getProductStock (Bean名称)
+    - getUserInfo (Bean名称)
+    ↓
+4. 发现 ToolRegistry (@Configuration)
+    ↓
+5. 执行 ToolRegistry.availableToolNames()
+    ↓
+6. 通过 ApplicationContext 获取所有 Function Bean
+    ↓
+7. 返回 List<String> = ["getProductStock", "getUserInfo"]
+    ↓
+8. Spring 将这个 List 注入到需要的地方
+    ↓
+9. AiService 构造函数接收 List<String> availableToolNames
+    ↓
+10. 转换为 String[] 数组存储
+    ↓
+11. 用户调用 processQuery()
+    ↓
+12. 使用 .toolNames(availableTools) 传递给 ChatClient
+```
+
+---
+
+## 🔍 详细代码执行流程
+
+### 步骤1: 定义工具 (ProductService.java)
+
+```java
+@Configuration  // ← Spring 会扫描这个类
+public class ProductService {
+    
+    @Bean  // ← 告诉 Spring 这是一个 Bean
+    @Description("查询库存")  // ← AI 用来理解工具用途
+    public Function<String, Integer> getProductStock() {
+        return (productName) -> {
+            // 实际的业务逻辑
+            return 150;
+        };
+    }
+}
+```
+
+**关键点:**
+- `@Bean` 方法名 = Bean 名称 = "getProductStock"
+- Spring 会自动调用这个方法并保存返回的 Function
+- 这个 Function 会被 Spring AI 框架识别为"工具"
+
+---
+
+### 步骤2: 自动扫描工具 (ToolRegistry.java)
+
+```java
+@Configuration
+public class ToolRegistry {
+    
+    @Autowired
+    private ApplicationContext applicationContext;  // ← Spring 容器
+    
+    @Bean  // ← 这个方法返回的 List 也是一个 Bean
+    public List<String> availableToolNames() {
+        // 1️⃣ 从 Spring 容器获取所有 Function 类型的 Bean
+        Map<String, Function> functionBeans = 
+            applicationContext.getBeansOfType(Function.class);
+        
+        // 假设此时 functionBeans = {
+        //   "getProductStock": Function实例1,
+        //   "getUserInfo": Function实例2
+        // }
+        
+        List<String> toolNames = new ArrayList<>();
+        
+        // 2️⃣ 遍历所有 Function Bean
+        for (Map.Entry<String, Function> entry : functionBeans.entrySet()) {
+            String beanName = entry.getKey();  // "getProductStock"
+            toolNames.add(beanName);
+        }
+        
+        // 3️⃣ 返回工具名称列表
+        // toolNames = ["getProductStock", "getUserInfo"]
+        System.out.println(">>> 自动发现工具: " + toolNames);
+        return toolNames;
+    }
+}
+```
+
+**关键点:**
+- `applicationContext.getBeansOfType(Function.class)` 是核心
+- 它会找到所有类型为 `Function` 的 Bean
+- Bean 的名称就是工具名称
+
+---
+
+### 步骤3: 注入到 AiService (AiService.java)
+
+```java
+@Service
+public class AiService {
+    
+    private final String[] availableTools;
+    
+    // Spring 会自动注入 List<String> availableToolNames
+    public AiService(ChatClient chatClient, 
+                     VectorStore vectorStore,
+                     List<String> availableToolNames) {  // ← 自动注入
+        
+        this.chatClient = chatClient;
+        this.vectorStore = vectorStore;
+        
+        // 将 List 转换为数组
+        this.availableTools = availableToolNames.toArray(new String[0]);
+        // availableTools = ["getProductStock", "getUserInfo"]
+        
+        System.out.println(">>> 加载了 " + availableTools.length + " 个工具");
+    }
+    
+    public Flux<String> processQuery(String msg) {
+        return chatClient.prompt()
+                .user(msg)
+                .toolNames(availableTools)  // ← 使用自动发现的工具
+                .stream()
+                .content();
+    }
+}
+```
+
+**关键点:**
+- Spring 看到构造函数需要 `List<String>` 类型的参数
+- Spring 找到 `ToolRegistry.availableToolNames()` 返回的 Bean
+- 自动注入进来
+
+---
+
+## 🎯 三种方式的关系
+
+### ❌ 误解: 三种方式需要同时存在
+### ✅ 正确: 三种方式是**不同的使用场景**,选择一种即可
+
+让我详细说明:
+
+### 方式1: 自动加载所有工具 (AiService.java)
+
+```java
+// 适用场景: 所有查询都需要访问所有工具
+public AiService(List<String> availableToolNames) {
+    this.availableTools = availableToolNames.toArray(new String[0]);
+}
+
+public Flux<String> processQuery(String msg) {
+    return chatClient.prompt()
+            .toolNames(availableTools)  // 每次都用所有工具
+            .stream()
+            .content();
+}
+```
+
+**使用场景:**
+- 工具数量不多 (< 20个)
+- 每个查询都可能需要任何工具
+- 追求简单,不需要优化
+
+---
+
+### 方式2: 按分类使用 (手动选择)
+
+```java
+@Autowired
+private ToolCategories toolCategories;
+
+public Flux<String> queryProducts(String msg) {
+    // 只使用产品相关工具
+    String[] tools = toolCategories.getToolsArrayByCategories("product");
+    
+    return chatClient.prompt()
+            .toolNames(tools)  // 只用产品工具
+            .stream()
+            .content();
+}
+
+public Flux<String> queryUsers(String msg) {
+    // 只使用用户相关工具
+    String[] tools = toolCategories.getToolsArrayByCategories("user");
+    
+    return chatClient.prompt()
+            .toolNames(tools)  // 只用用户工具
+            .stream()
+            .content();
+}
+```
+
+**使用场景:**
+- 工具很多 (> 20个)
+- 不同接口需要不同工具集
+- 需要性能优化
+
+---
+
+### 方式3: 智能选择 (SmartAiService.java)
+
+```java
+public Flux<String> smartQuery(String msg) {
+    // 根据查询内容自动选择工具
+    String[] tools = selectToolsForQuery(msg);
+    
+    return chatClient.prompt()
+            .toolNames(tools)  // 动态选择的工具
+            .stream()
+            .content();
+}
+
+private String[] selectToolsForQuery(String query) {
+    if (query.contains("产品")) {
+        return toolCategories.getToolsArrayByCategories("product");
+    } else if (query.contains("用户")) {
+        return toolCategories.getToolsArrayByCategories("user");
+    }
+    return toolCategories.getAllToolsArray();
+}
+```
+
+**使用场景:**
+- 工具非常多 (> 50个)
+- 单一入口,需要自动判断
+- 追求最优性能
+
+---
+
+## 🔧 实际使用建议
+
+### 当前你的项目 (只有2个工具)
+
+**推荐使用方式1** - 最简单:
+
+```java
+// 当前的 AiService.java 就是这样实现的
+@Service
+public class AiService {
+    public AiService(List<String> availableToolNames) {
+        this.availableTools = availableToolNames.toArray(new String[0]);
+    }
+    
+    public Flux<String> processQuery(String msg) {
+        return chatClient.prompt()
+                .toolNames(availableTools)  // 使用所有工具
+                .stream()
+                .content();
+    }
+}
+```
+
+**你只需要:**
+1. 保留 `ToolRegistry.java` (自动扫描)
+2. 保留 `AiService.java` (使用所有工具)
+3. **删除** `SmartAiService.java` (暂时不需要)
+
+---
+
+### 如果将来有100个工具
+
+**升级到方式3**:
+
+```java
+@Service
+public class AiService {
+    private final ToolCategories toolCategories;
+    
+    public AiService(ToolCategories toolCategories) {
+        this.toolCategories = toolCategories;
+    }
+    
+    public Flux<String> processQuery(String msg) {
+        // 智能选择工具
+        String[] tools = selectToolsForQuery(msg);
+        
+        return chatClient.prompt()
+                .toolNames(tools)
+                .stream()
+                .content();
+    }
+}
+```
+
+---
+
+## 📝 总结
+
+### 自动发现的核心逻辑
+
+```
+1. Spring 启动时扫描所有 @Bean 方法
+2. ToolRegistry.availableToolNames() 通过 ApplicationContext 获取所有 Function Bean
+3. 返回 Bean 名称列表 ["getProductStock", "getUserInfo"]
+4. Spring 将这个列表注入到 AiService 构造函数
+5. AiService 使用这个列表调用 .toolNames()
+```
+
+### 三种方式的关系
+
+- **不是同时存在**,而是**根据需求选择一种**
+- 都依赖 `ToolRegistry` 的自动扫描功能
+- 区别在于**如何使用**扫描到的工具列表
+
+### 当前推荐
+
+**只保留方式1** (AiService.java):
+- 简单直接
+- 适合你当前的2个工具
+- 自动发现新工具,无需修改代码
+
+需要我帮你清理不需要的代码吗?

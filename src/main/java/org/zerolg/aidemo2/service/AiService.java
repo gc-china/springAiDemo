@@ -3,7 +3,6 @@ package org.zerolg.aidemo2.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -25,48 +24,72 @@ public class AiService {
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
+    private final String[] availableTools; // 所有可用工具
 
     @Value("classpath:/static/rag-enhanced-prompt.st")
     private Resource ragEnhancedPromptResource;
+    
+    // RAG 检索配置参数
+    @Value("${ai.rag.topK:8}")
+    private int ragTopK;
+    
+    @Value("${ai.rag.similarityThreshold:0.4}")
+    private double ragSimilarityThreshold;
 
-    public AiService(ChatClient chatClient, VectorStore vectorStore) {
+    public AiService(ChatClient chatClient, VectorStore vectorStore, List<String> availableToolNames) {
         this.chatClient = chatClient;
         this.vectorStore = vectorStore;
+        this.availableTools = availableToolNames.toArray(new String[0]);
+        logger.info("AiService 初始化完成,加载了 {} 个工具: {}", availableTools.length, String.join(", ", availableTools));
     }
 
+    /**
+     * 处理用户查询
+     * 
+     * 流程:
+     * 1. RAG 检索 - 从向量数据库检索相关文档
+     * 2. 重排序 - 使用 LLM 对文档进行精选
+     * 3. 构建 Prompt - 将上下文注入到 System Message
+     * 4. 调用 AI - 使用工具增强的对话
+     * 
+     * @param msg 用户查询内容
+     * @return 流式响应
+     */
     public Flux<String> processQuery(String msg) {
+        logger.debug("开始处理查询: {}", msg);
+        
         // 1. RAG 检索 (Retrieve) - 扩大范围 (Recall)
-        // 策略：TopK 设大 (8)，阈值设低 (0.4)，先捞上来再说
+        // 策略：TopK 设大，阈值设低，先捞上来再说
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(msg)
-                .topK(8) 
-                .similarityThreshold(0.4) 
+                .topK(ragTopK) 
+                .similarityThreshold(ragSimilarityThreshold) 
                 .build();
 
         List<Document> initialDocuments = vectorStore.similaritySearch(searchRequest);
         
         // 2. 重排序 (Re-ranking) - 专家评审
-        // 使用 LLM 对初筛结果进行精选，只保留真正相关的 Top 3
+        // 使用 LLM 对初筛结果进行精选,只保留真正相关的 Top 3
         List<Document> finalDocuments = rerankDocuments(msg, initialDocuments);
 
         String context = finalDocuments.stream()
                 .map(Document::getFormattedContent)
                 .collect(Collectors.joining("\n\n"));
         
-        // 3. 准备工具列表
-        List<String> toolNames = List.of("getProductStock", "getUserInfo");
-        
-        // 4. 构建 Prompt
-        // 从 .st 文件加载 System Prompt 模板
+        // 3. 构建 Prompt
+        // 从 .st 模板文件加载 System Prompt，并注入 RAG 检索到的上下文
+        // 这样 AI 就能基于知识库内容回答问题，而不是仅凭训练数据
         PromptTemplate systemPromptTemplate = new PromptTemplate(ragEnhancedPromptResource);
         String systemText = systemPromptTemplate.render(Map.of(
                 "context", context.isEmpty() ? "无" : context
         ));
+        
+        logger.debug("使用 {} 个工具进行查询", availableTools.length);
 
         return chatClient.prompt()
                 .system(systemText) // 使用 System Role 注入规则和上下文
                 .user(msg)          // User Role 只放问题
-                .toolNames(toolNames.toArray(new String[0]))
+                .toolNames(availableTools) // 使用自动加载的所有工具
                 .stream()
                 .content();
     }
@@ -95,9 +118,9 @@ public class AiService {
                 
                 请分析上述文档与用户问题的相关性。
                 请选出最相关的最多 3 个文档的编号（0-%d）。
-                如果都不相关，请返回空列表。
+                如果都不相关,请返回空列表。
                 
-                请仅返回纯数字编号的 JSON 数组，例如：[0, 2, 1]。不要包含任何其他解释或 Markdown 标记。
+                请仅返回纯数字编号的 JSON 数组,例如：[0, 2, 1]。不要包含任何其他解释或 Markdown 标记。
                 """.formatted(query, docsBuilder.toString(), documents.size() - 1);
 
         try {
@@ -136,8 +159,8 @@ public class AiService {
             return rerankedDocs;
 
         } catch (Exception e) {
-            // 如果重排序失败（如 LLM 响应超时或格式错误），降级为直接返回前 3 个原文档
-            System.err.println("Re-ranking failed, fallback to top 3: " + e.getMessage());
+            // 如果重排序失败（如 LLM 响应超时或格式错误）,降级为直接返回前 3 个原文档
+            logger.warn("重排序失败，降级使用前3个文档: {}", e.getMessage());
             return documents.stream().limit(3).collect(Collectors.toList());
         }
     }
