@@ -4,6 +4,9 @@ spring:
   application:
     name: aiDemo2
   ai:
+    rag:
+    topK: 8
+    similarityThreshold: 0.4  
     # ❗ 移除 alibaba 层级，直接在 ai 下配置 dashscope
     dashscope:
       api-key: ${DASHSCOPE_API_KEY} # 使用环境变量注入

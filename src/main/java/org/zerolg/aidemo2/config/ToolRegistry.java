@@ -41,15 +41,14 @@ public class ToolRegistry {
         // 获取所有 Function Bean
         Map<String, Function> functionBeans = applicationContext.getBeansOfType(Function.class);
         
-        // 🎯 过滤:只保留有 @Description 注解的工具
-        List<String> toolNames = functionBeans.keySet().stream()
-                .filter(this::hasDescriptionAnnotation)  // 检查是否有 @Description
-                .collect(Collectors.toList());
+        // 直接返回所有 Function Bean 的名称
+        // 注意：Spring AI 会自动处理 @Description，如果这里过滤错了，工具就丢了
+        List<String> toolNames = new ArrayList<>(functionBeans.keySet());
         
         System.out.println(">>> 🔧 自动发现 " + toolNames.size() + " 个工具: " + toolNames);
         return toolNames;
     }
-    
+
     /**
      * 检查 Bean 是否有 @Description 注解
      */
