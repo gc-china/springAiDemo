@@ -1,18 +1,21 @@
-package org.zerolg.aidemo2.service;
+package org.zerolg.aidemo2.service.impl;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.zerolg.aidemo2.service.MockSearchService;
 
 /**
- * 模拟搜索引擎服务
+ * 模拟搜索引擎服务实现
  * 生产环境通常使用 ElasticSearch 或 Redis
  */
 @Service
-public class MockSearchService {
+@Primary
+public class MockSearchServiceImpl implements MockSearchService {
 
     // 模拟数据库：名称 -> ID 的映射
     // 包含一些同义词和模糊匹配的数据
@@ -26,13 +29,12 @@ public class MockSearchService {
         PRODUCT_DB.put("Dyson Hair Dryer", "P-005");
     }
 
-    public record SearchResult(String id, String name) {}
-
     /**
      * 模糊搜索
      * @param query 用户输入的模糊名称
      * @return 匹配的产品列表
      */
+    @Override
     public List<SearchResult> fuzzySearch(String query) {
         List<SearchResult> results = new ArrayList<>();
         String lowerQuery = query.toLowerCase();

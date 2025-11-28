@@ -1,4 +1,4 @@
-package org.zerolg.aidemo2.service;
+package org.zerolg.aidemo2.tools;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
 
 import java.util.function.Function;
+import org.zerolg.aidemo2.service.InventoryService;
 
 @Configuration
 public class InventoryTools {
@@ -36,7 +37,7 @@ public class InventoryTools {
         return request -> {
             // 注意：如果 AOP 工作正常，这里的 product 应该已经被替换为 ID 了
             String idOrName = request.product();
-            
+
             // 简单的判断：如果是 P- 开头，说明是 ID
             if (idOrName.startsWith("P-")) {
                 int stock = inventoryService.getStock(idOrName);
@@ -86,7 +87,7 @@ public class InventoryTools {
                         ⚠️ **操作确认**
                         您申请将 %d 个 [%s] 从 %s 调拨到 %s。
                         请回复“确认”以执行此操作，或回复“取消”以撤销。
-                        """, 
+                        """,
                         request.quantity(), request.product(), request.fromWarehouse(), request.toWarehouse());
             } else {
                 // ✅ 阶段二：执行操作

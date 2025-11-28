@@ -2,25 +2,35 @@ package org.zerolg.aidemo2.exception;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.zerolg.aidemo2.common.ApiResponse;
+import org.zerolg.aidemo2.common.BusinessException;
+import org.zerolg.aidemo2.common.ResultCode;
 
-import java.util.HashMap;
-import java.util.Map;
-
+/**
+ * 全局异常处理切面
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    /**
+     * 处理自定义业务异常
+     */
+    @ExceptionHandler(BusinessException.class)
+    public ApiResponse<Void> handleBusinessException(BusinessException e) {
+        logger.warn("业务异常: code={}, message={}", e.getResultCode().getCode(), e.getMessage());
+        return ApiResponse.failed(e.getResultCode().getCode(), e.getMessage());
+    }
+
+    /**
+     * 处理未捕获的系统异常
+     */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleException(Exception e) {
-        logger.error("Unhandled exception: ", e);
-        Map<String, String> errorResponse = new HashMap<>();
-        errorResponse.put("error", "Internal Server Error");
-        errorResponse.put("message", e.getMessage());
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+    public ApiResponse<Void> handleException(Exception e) {
+        logger.error("系统异常: ", e);
+        return ApiResponse.failed(ResultCode.FAILED.getCode(), "系统繁忙，请稍后重试: " + e.getMessage());
     }
 }
