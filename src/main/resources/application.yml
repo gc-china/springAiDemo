@@ -6,7 +6,7 @@ spring:
   ai:
     # ❗ 移除 alibaba 层级，直接在 ai 下配置 dashscope
     dashscope:
-      api-key: ${DASHSCOPE_API_KEY} # 使用环境变量注入
+      api-key: sk-9b7025eed55f4cfbb4ea1dbb11bfacdc # 使用环境变量注入
     embedding:
       # ???? DashScope ??? embedding ??
       model: text-embedding-v1
