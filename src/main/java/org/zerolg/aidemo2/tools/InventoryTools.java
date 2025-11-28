@@ -62,7 +62,8 @@ public class InventoryTools {
                     logger.info("✅ 找到唯一匹配: {} -> {} ({})", rawName, match.name(), match.id());
 
                     String correctedId = match.id();
-                    inventoryService.getStock(correctedId);
+                    int stock = inventoryService.getStock(correctedId);
+                    return "产品ID [" + rawName + "] 的当前库存为: " + stock;
                 } else if (matches.size() > 1) {
                     // ❓ 情况B: 多个匹配 -> 返回歧义提示
                     String names = matches.stream()
@@ -78,8 +79,6 @@ public class InventoryTools {
                     return "未找到名称包含 '" + rawName + "' 的产品。请检查名称是否正确。";
                 }
 
-                // 如果还是名称，说明 AOP 没拦截或者没找到，这里做兜底
-                return "未找到产品 [" + rawName + "]，请尝试提供更准确的名称。";
             }
         };
     }
