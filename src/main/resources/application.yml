@@ -3,14 +3,54 @@ server:
 spring:
   application:
     name: aiDemo2
+  
+  # Redis 配置：用于会话存储
+  data:
+    redis:
+      # Redis 服务器地址
+      host: localhost
+      # Redis 端口
+      port: 6379
+      # 数据库索引（0-15），默认使用 0
+      database: 0
+      # 连接超时时间（毫秒）
+      timeout: 3000ms
+      # Lettuce 连接池配置
+      lettuce:
+        pool:
+          # 最大连接数（负数表示无限制）
+          max-active: 8
+          # 最大空闲连接数
+          max-idle: 8
+          # 最小空闲连接数
+          min-idle: 2
+          # 连接池最大阻塞等待时间（负数表示无限制）
+          max-wait: -1ms
+  
   ai:
     rag:
     topK: 8
     similarityThreshold: 0.4  
     # ❗ 移除 alibaba 层级，直接在 ai 下配置 dashscope
     dashscope:
-      api-key: sk-9542ddc0ec1e40c0a4f1b0d3d389e778} # 使用环境变量注入，提供默认值
+      api-key: sk-9542ddc0ec1e40c0a4f1b0d3d389e778 
       chat:
         options:
-          model: qwen-max # 使用文本模型避免 VL 模型的 URL 参数问题
+          model: qwen-max 
+
+# 会话记忆配置
+session:
+  memory:
+    # 会话 TTL（秒），默认 7 天
+    ttl: 604800
+    # 最大消息数量（超过后自动清理旧消息）
+    max-messages: 100
+    # 最大 token 预算（用于滑动窗口）
+    max-prompt-tokens: 4000
+    # 默认返回最近消息数量
+    default-recent-count: 10
+logging: 
+  charset: 
+    console: UTF-8 
+    file: UTF-8    
 
