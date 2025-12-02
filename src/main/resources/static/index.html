@@ -1,249 +1,682 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
+
 <head>
     <meta charset="UTF-8">
-    <title>AI 客服混合路由聊天界面 - 最终美化版</title>
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Pro Chat</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gemini: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            900: '#0c4a6e',
+                        },
+                        dark: {
+                            bg: '#131314',
+                            surface: '#1e1f20',
+                            text: '#e3e3e3'
+                        }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Highlight.js -->
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <!-- Marked (使用旧版本避免API问题) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <!-- Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+
     <style>
-        /* 全局样式与布局 */
-        body {
-            font-family: 'Google Sans', 'Arial', sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background-color: #F8F9FA; /* 极浅灰色背景 */
+        * {
             margin: 0;
-            padding-top: 40px;
-        }
-        #chat-container {
-            width: 760px; /* 略微拓宽 */
-            max-width: 90%;
-            background: white;
-            border-radius: 24px; /* 更大的圆角 */
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08); /* 更柔和且明显的阴影 */
-            padding: 30px;
-            display: flex;
-            flex-direction: column;
-            min-height: 700px;
-        }
-        h3 {
-            color: #3C4043;
-            font-weight: 500;
-            margin-top: 0;
-            padding-bottom: 5px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-
-        /* 聊天气泡区域 */
-        #output-area {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 10px 0;
-            margin-bottom: 15px;
-            /* 保持背景干净，无边框 */
-        }
-        .message {
-            margin-bottom: 15px;
-            padding: 12px 18px;
-            border-radius: 20px; /* 消息大圆角 */
-            max-width: 80%;
-            line-height: 1.6;
-            font-size: 16px;
-        }
-
-        /* 用户的消息：Gemini 风格的浅蓝色/焦点色 */
-        .user-message {
-            background-color: #E8F0FE; /* 浅蓝色调 */
-            color: #202124;
-            margin-left: auto;
-            border-bottom-right-radius: 8px; /* 底部小角 */
-        }
-
-        /* AI 的消息：柔和的浅灰色背景 */
-        .ai-message {
-            background-color: #F0F0F0;
-            color: #202124;
-            margin-right: auto;
-            border-bottom-left-radius: 8px; /* 底部小角 */
-        }
-
-        /* 输入区域 (核心美化部分) */
-        #input-area {
-            display: flex;
-            gap: 15px;
-            padding: 15px 25px;
-            border: 1px solid #DADCE0;
-            border-radius: 30px; /* 胶囊状输入框 */
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); /* 突出输入框的层次感 */
-            transition: box-shadow 0.3s ease-in-out, border-color 0.3s;
-        }
-        /* 聚焦时的蓝色光晕效果 */
-        #input-area:focus-within {
-            border-color: #4285F4; /* 谷歌蓝边框 */
-            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.2); /* 蓝色光晕 */
-        }
-
-        #message-input {
-            flex-grow: 1;
             padding: 0;
-            border: none;
-            outline: none;
-            font-size: 16px;
-            background: none;
-            color: #202124;
+            box-sizing: border-box;
         }
 
-        /* 发送按钮：作为图标呈现 */
-        #send-button {
-            width: 40px;
-            height: 40px;
-            background-color: #1A73E8;
-            color: white;
-            border: none;
-            border-radius: 50%; /* 圆形按钮 */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        /* Light/Dark mode */
+        body {
+            background: white;
+            color: #111;
+        }
+
+        body.dark {
+            background: #131314;
+            color: #e3e3e3;
+        }
+
+        /* Markdown */
+        .markdown-body {
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+
+        .markdown-body pre {
+            background: #f3f4f6;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin: 1rem 0;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .dark .markdown-body pre {
+            background: #282c34;
+        }
+
+        .markdown-body code {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9em;
+        }
+
+        .markdown-body p {
+            margin-bottom: 1rem;
+        }
+
+        .markdown-body ul,
+        .markdown-body ol {
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .markdown-body blockquote {
+            border-left: 4px solid #0ea5e9;
+            padding-left: 1rem;
+            color: #6b7280;
+            margin: 1rem 0;
+        }
+
+        .dark .markdown-body blockquote {
+            color: #9ca3af;
+        }
+
+        /* Code copy button */
+        .copy-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 0.25rem;
+            color: #9ca3af;
+            font-size: 0.75rem;
             cursor: pointer;
-            font-size: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background-color 0.2s, opacity 0.2s;
-        }
-        #send-button:hover:not(:disabled) {
-            background-color: #1669D9;
-        }
-        #send-button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-            opacity: 0.7;
+            opacity: 0;
+            transition: all 0.2s;
+            border: none;
         }
 
-        #controls {
-            margin-bottom: 20px;
-            width: 760px;
-            max-width: 90%;
-            display: flex;
-            align-items: center;
-            color: #5F6368;
-            font-size: 14px;
+        .dark .copy-btn {
+            background: rgba(0, 0, 0, 0.3);
         }
-        #conv-id {
-            padding: 8px;
-            border: 1px solid #DADCE0;
-            border-radius: 8px;
-            margin-left: 10px;
-            font-size: 14px;
-            color: #3C4043;
+
+        pre:hover .copy-btn {
+            opacity: 1;
+        }
+
+        .copy-btn:hover {
+            background: rgba(0, 165, 233, 0.2);
+            color: #0ea5e9;
+        }
+
+        /* Typing cursor */
+        .typing-cursor::after {
+            content: '▋';
+            animation: blink 1s step-start infinite;
+            color: #0ea5e9;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .dark ::-webkit-scrollbar-track {
+            background: #1e1f20;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #d1d1d1;
+            border-radius: 4px;
+        }
+
+        .dark ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #b1b1b1;
+        }
+
+        .dark ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
         }
     </style>
 </head>
+
 <body>
+    <div id="app" class="h-screen flex flex-col md:flex-row overflow-hidden">
 
-<div id="controls">
-    <label for="conv-id">会话ID (LocalStorage 持久化):</label>
-    <input type="text" id="conv-id" value="正在加载..." readonly style="background-color: #f0f0f0;">
-</div>
+        <!-- Login Modal -->
+        <div v-if="!currentUser"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/80 backdrop-blur-sm">
+            <div
+                class="bg-white dark:bg-[#1e1f20] p-8 rounded-2xl shadow-2xl w-96 border border-gray-200 dark:border-gray-700">
+                <div class="text-center mb-8">
+                    <h1
+                        class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                        Gemini Pro</h1>
+                    <p class="text-gray-500 dark:text-gray-400 mt-2">智能仓储助手</p>
+                </div>
+                <form @submit.prevent="login">
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">用户名</label>
+                        <input v-model="loginForm.username" type="text" required
+                            class="w-full bg-gray-50 dark:bg-[#131314] border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                            placeholder="请输入您的名字">
+                    </div>
+                    <button type="submit"
+                        class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold py-3 px-4 rounded-lg transition-all transform hover:scale-[1.02]">
+                        进入系统
+                    </button>
+                </form>
+            </div>
+        </div>
 
-<div id="chat-container">
-    <h3>AI 智能客服系统</h3>
-    <div id="output-area">
-        <div class="ai-message message">欢迎使用智能客服。系统已为您分配唯一的会话ID，请开始提问！</div>
+        <!-- Sidebar -->
+        <aside
+            :class="['bg-gray-50 dark:bg-[#1e1f20] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 flex flex-col z-20', isSidebarOpen ? 'w-64' : 'w-0 md:w-16']">
+            <div class="p-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
+                <div v-if="isSidebarOpen"
+                    class="font-bold text-xl bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent truncate">
+                    Gemini Pro
+                </div>
+                <button @click="toggleSidebar"
+                    class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400 transition-colors">
+                    <i class="ri-menu-line text-xl"></i>
+                </button>
+            </div>
+
+            <div class="p-3">
+                <button @click="startNewChat"
+                    class="w-full flex items-center justify-center gap-2 bg-white dark:bg-[#2d2e30] hover:bg-gray-100 dark:hover:bg-[#3c3d40] text-gray-700 dark:text-gray-200 py-3 px-4 rounded-full transition-all border border-gray-200 dark:border-gray-700 shadow-sm group">
+                    <i class="ri-add-line text-xl group-hover:rotate-90 transition-transform"></i>
+                    <span v-if="isSidebarOpen" class="font-medium">新对话</span>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-2 space-y-1">
+                <div v-if="isSidebarOpen" class="text-xs font-semibold text-gray-500 px-3 py-2">最近对话</div>
+                <div v-for="chat in chatHistory" :key="chat.id" @click="loadChat(chat.id)"
+                    :class="['group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors relative', currentChatId === chat.id ? 'bg-blue-50 dark:bg-[#004a77]/30 text-blue-600 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2d2e30] hover:text-gray-900 dark:hover:text-gray-200']">
+                    <i class="ri-message-3-line"></i>
+                    <span v-if="isSidebarOpen" class="truncate text-sm">{{ chat.title || '新对话' }}</span>
+                    <button v-if="isSidebarOpen" @click.stop="deleteChat(chat.id)"
+                        class="absolute right-2 opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 dark:hover:text-red-400 transition-opacity">
+                        <i class="ri-delete-bin-line"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-gray-200 dark:border-gray-800 space-y-2">
+                <!-- Theme Toggle -->
+                <button @click="toggleTheme"
+                    class="w-full flex items-center gap-3 p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2d2e30] transition-colors">
+                    <i :class="isDarkMode ? 'ri-moon-line' : 'ri-sun-line'"></i>
+                    <span v-if="isSidebarOpen" class="text-sm">{{ isDarkMode ? '深色模式' : '浅色模式' }}</span>
+                </button>
+
+                <!-- User Info -->
+                <div class="flex items-center gap-3 pt-2 border-t border-gray-200 dark:border-gray-800">
+                    <div
+                        class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
+                        {{ currentUser ? currentUser.charAt(0).toUpperCase() : 'U' }}
+                    </div>
+                    <div v-if="isSidebarOpen" class="flex-1 min-w-0">
+                        <div class="text-sm font-medium truncate text-gray-700 dark:text-gray-200">{{ currentUser }}
+                        </div>
+                    </div>
+                    <button v-if="isSidebarOpen" @click="logout"
+                        class="text-gray-500 hover:text-red-500 transition-colors">
+                        <i class="ri-logout-box-r-line"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col relative h-full">
+            <!-- Header (Mobile) -->
+            <div
+                class="md:hidden p-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#131314]">
+                <button @click="toggleSidebar" class="text-gray-500 dark:text-gray-400">
+                    <i class="ri-menu-line text-xl"></i>
+                </button>
+                <span class="font-bold">Gemini Pro</span>
+                <div class="w-6"></div>
+            </div>
+
+            <!-- Chat Area -->
+            <div ref="chatContainer" class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scroll-smooth">
+                <div v-if="currentMessages.length === 0"
+                    class="h-full flex flex-col items-center justify-center text-center opacity-50">
+                    <div
+                        class="w-20 h-20 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-full flex items-center justify-center mb-6 animate-pulse-slow">
+                        <i class="ri-sparkling-2-fill text-4xl text-blue-500"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold mb-2">有什么可以帮您的吗？</h2>
+                    <p class="text-gray-500 dark:text-gray-400 max-w-md">我可以帮您查询库存、调拨商品，或者回答关于仓储管理的任何问题。</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8 w-full max-w-2xl">
+                        <button @click="quickAsk('查一下苹果15的库存')"
+                            class="p-4 bg-gray-50 dark:bg-[#1e1f20] hover:bg-gray-100 dark:hover:bg-[#2d2e30] rounded-xl text-left transition-colors border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600">
+                            <i class="ri-search-line text-blue-500 mb-2 block"></i>
+                            <span class="text-sm font-medium">查一下苹果15的库存</span>
+                        </button>
+                        <button @click="quickAsk('把上海的10个iPhone 15发到北京')"
+                            class="p-4 bg-gray-50 dark:bg-[#1e1f20] hover:bg-gray-100 dark:hover:bg-[#2d2e30] rounded-xl text-left transition-colors border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600">
+                            <i class="ri-truck-line text-purple-500 mb-2 block"></i>
+                            <span class="text-sm font-medium">把上海的10个iPhone 15发到北京</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div v-for="(msg, index) in currentMessages" :key="index"
+                    :class="['flex gap-4 max-w-4xl mx-auto', msg.role === 'user' ? 'flex-row-reverse' : '']">
+
+                    <!-- Avatar -->
+                    <div
+                        :class="['w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold', 
+                        msg.role === 'user' ? 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-white' : 'bg-gradient-to-br from-blue-500 to-purple-600 text-white']">
+                        <i v-if="msg.role === 'ai'" class="ri-sparkling-2-fill"></i>
+                        <span v-else>U</span>
+                    </div>
+
+                    <!-- Message Bubble -->
+                    <div
+                        :class="['max-w-[85%] rounded-2xl px-5 py-3 shadow-sm', 
+                        msg.role === 'user' ? 'bg-gray-100 dark:bg-[#2d2e30] text-gray-900 dark:text-white' : 'bg-transparent text-gray-900 dark:text-gray-100']">
+
+                        <!-- Thinking Chain (Collapsible) -->
+                        <div v-if="msg.thinking" class="mb-3">
+                            <details class="group">
+                                <summary
+                                    class="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors select-none">
+                                    <i class="ri-brain-line"></i>
+                                    <span>思考过程</span>
+                                    <i class="ri-arrow-down-s-line group-open:rotate-180 transition-transform"></i>
+                                </summary>
+                                <div
+                                    class="mt-2 p-3 bg-gray-50 dark:bg-[#1e1f20] rounded-lg border border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 font-mono whitespace-pre-wrap leading-relaxed">
+                                    {{ msg.thinking }}
+                                </div>
+                            </details>
+                        </div>
+
+                        <!-- Content -->
+                        <div v-if="msg.role === 'ai'" class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+                        <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
+
+                        <!-- Cursor for streaming -->
+                        <span v-if="msg.isStreaming" class="typing-cursor"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 bg-white dark:bg-[#131314] border-t border-gray-200 dark:border-gray-800">
+                <div class="max-w-4xl mx-auto relative">
+                    <textarea v-model="inputMessage" @keydown.enter.prevent="handleEnter" rows="1" ref="textarea"
+                        placeholder="输入您的问题..."
+                        class="w-full bg-gray-100 dark:bg-[#1e1f20] text-gray-900 dark:text-white rounded-2xl pl-4 pr-12 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 placeholder-gray-500"
+                        style="min-height: 56px; max-height: 200px;"></textarea>
+
+                    <button @click="sendMessage" :disabled="!inputMessage.trim() || isGenerating"
+                        class="absolute right-2 bottom-2 p-2 rounded-xl bg-blue-600 dark:bg-white text-white dark:text-black hover:bg-blue-700 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                        <i v-if="isGenerating" class="ri-stop-circle-line text-xl"></i>
+                        <i v-else class="ri-send-plane-fill text-xl"></i>
+                    </button>
+                </div>
+                <div class="text-center text-xs text-gray-500 mt-2">
+                    Gemini Pro may display inaccurate info, including about people, so double-check its responses.
+                </div>
+            </div>
+        </main>
     </div>
-    <div id="input-area">
-        <input type="text" id="message-input" placeholder="输入您的问题，例如：年假策略？">
-        <button id="send-button">➤</button>
-    </div>
-</div>
 
-<script>
-    // 核心JS逻辑保持不变，但移除了消息中的 'AI:' 和 '你:' 标签
-    const inputElement = document.getElementById('message-input');
-    const sendButton = document.getElementById('send-button');
-    const outputArea = document.getElementById('output-area');
-    const convIdInput = document.getElementById('conv-id');
+    <script>
+        const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
 
-    let eventSource = null;
-
-    function generateUUID() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
-    }
-
-    function getOrCreateConversationId() {
-        let convId = localStorage.getItem('persistentConversationId');
-        if (!convId) {
-            convId = generateUUID();
-            localStorage.setItem('persistentConversationId', convId);
+        // UUID生成函数
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
         }
-        convIdInput.value = convId;
-    }
 
-    function appendMessage(text, sender) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'ai-message'}`;
-        // ❗ 移除 "AI:" 和 "你:" 标签，完全依赖 CSS 样式和位置区分发送方
-        messageDiv.innerHTML = text;
-        outputArea.appendChild(messageDiv);
-        outputArea.scrollTop = outputArea.scrollHeight;
-        return messageDiv;
-    }
+        // Global copy function for code blocks
+        window.copyCode = (btn) => {
+            const pre = btn.parentElement;
+            const code = pre.querySelector('code');
+            const text = code.innerText;
 
-    function startStream(userMessage) {
-        const messageEncoded = encodeURIComponent(userMessage);
-        const conversationId = convIdInput.value;
-
-        // 确保使用正确的端口和路径
-        const url = `http://localhost:8888/three-stage/stream?msg=${messageEncoded}&conversationId=${conversationId}`;
-
-        appendMessage(userMessage, 'user');
-
-        const aiMessageContainer = appendMessage('', 'ai');
-
-        sendButton.disabled = true;
-        inputElement.disabled = true;
-
-        eventSource = new EventSource(url);
-
-        let fullResponse = '';
-
-        eventSource.onmessage = function(event) {
-            const chunk = event.data;
-
-            aiMessageContainer.innerHTML += chunk;
-            fullResponse += chunk;
-            outputArea.scrollTop = outputArea.scrollHeight;
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = btn.innerText;
+                btn.innerText = '已复制!';
+                setTimeout(() => {
+                    btn.innerText = '复制';
+                }, 2000);
+            });
         };
 
-        eventSource.onerror = function(err) {
-            console.error("SSE Error:", err);
-            eventSource.close();
+        createApp({
+            setup() {
+                // State
+                const currentUser = ref(localStorage.getItem('currentUser') || '');
+                const loginForm = ref({ username: '' });
+                const isSidebarOpen = ref(window.innerWidth > 768);
+                const isDarkMode = ref(localStorage.getItem('theme') !== 'light');
+                const inputMessage = ref('');
+                const isGenerating = ref(false);
+                const chatContainer = ref(null);
+                const textarea = ref(null);
 
-            sendButton.disabled = false;
-            inputElement.disabled = false;
+                // Chat Data
+                const chatHistory = ref([]);
+                const currentChatId = ref(null);
+                const currentChatUUID = ref(null);
+                const currentMessages = ref([]);
 
-            if (fullResponse.trim() === '') {
-                aiMessageContainer.innerHTML = '连接中断或模型无回复。'; // 修复空回复显示
+                // Markdown Setup (使用旧版API)
+                marked.setOptions({
+                    highlight: function (code, lang) {
+                        if (lang && hljs.getLanguage(lang)) {
+                            return hljs.highlight(code, { language: lang }).value;
+                        }
+                        return hljs.highlightAuto(code).value;
+                    },
+                    breaks: true
+                });
+
+                // Methods
+                const renderMarkdown = (text) => {
+                    let html = marked.parse(text);
+                    // 在渲染后添加复制按钮
+                    html = html.replace(/<pre><code/g, '<pre><button class="copy-btn" onclick="copyCode(this)">复制</button><code');
+                    return html;
+                };
+
+                const toggleTheme = () => {
+                    isDarkMode.value = !isDarkMode.value;
+                    updateTheme();
+                };
+
+                const updateTheme = () => {
+                    if (isDarkMode.value) {
+                        document.documentElement.classList.add('dark');
+                        document.body.classList.add('dark');
+                        localStorage.setItem('theme', 'dark');
+                    } else {
+                        document.documentElement.classList.remove('dark');
+                        document.body.classList.remove('dark');
+                        localStorage.setItem('theme', 'light');
+                    }
+                };
+
+                const login = () => {
+                    if (loginForm.value.username.trim()) {
+                        currentUser.value = loginForm.value.username;
+                        localStorage.setItem('currentUser', currentUser.value);
+                        loadHistory();
+                    }
+                };
+
+                const logout = () => {
+                    currentUser.value = '';
+                    localStorage.removeItem('currentUser');
+                    currentMessages.value = [];
+                    currentChatId.value = null;
+                    chatHistory.value = [];
+                };
+
+                const toggleSidebar = () => {
+                    isSidebarOpen.value = !isSidebarOpen.value;
+                };
+
+                const getHistoryKey = () => `chatHistory_${currentUser.value}`;
+
+                const loadHistory = () => {
+                    const key = getHistoryKey();
+                    chatHistory.value = JSON.parse(localStorage.getItem(key) || '[]');
+                    if (chatHistory.value.length === 0) {
+                        startNewChat();
+                    } else {
+                        loadChat(chatHistory.value[0].id);
+                    }
+                };
+
+                const startNewChat = () => {
+                    const newChat = {
+                        id: Date.now().toString(),
+                        uuid: generateUUID(),
+                        username: currentUser.value,
+                        title: '新对话',
+                        messages: [],
+                        timestamp: Date.now()
+                    };
+                    chatHistory.value.unshift(newChat);
+                    saveHistory();
+                    loadChat(newChat.id);
+                    console.log('🆕 新对话:', { id: newChat.id, uuid: newChat.uuid, user: newChat.username });
+                };
+
+                const loadChat = (id) => {
+                    currentChatId.value = id;
+                    const chat = chatHistory.value.find(c => c.id === id);
+                    if (chat) {
+                        currentMessages.value = chat.messages;
+                        currentChatUUID.value = chat.uuid || null;
+                        console.log('📂 加载对话:', { id: chat.id, uuid: chat.uuid });
+                        nextTick(scrollToBottom);
+                    }
+                };
+
+                const deleteChat = (id) => {
+                    chatHistory.value = chatHistory.value.filter(c => c.id !== id);
+                    saveHistory();
+                    if (currentChatId.value === id) {
+                        if (chatHistory.value.length > 0) {
+                            loadChat(chatHistory.value[0].id);
+                        } else {
+                            startNewChat();
+                        }
+                    }
+                };
+
+                const saveHistory = () => {
+                    if (currentUser.value) {
+                        localStorage.setItem(getHistoryKey(), JSON.stringify(chatHistory.value));
+                    }
+                };
+
+                const updateCurrentChat = () => {
+                    const chat = chatHistory.value.find(c => c.id === currentChatId.value);
+                    if (chat) {
+                        chat.messages = currentMessages.value;
+                        if (chat.messages.length > 0 && chat.title === '新对话') {
+                            chat.title = chat.messages[0].content.slice(0, 20);
+                        }
+                        chat.timestamp = Date.now();
+                        saveHistory();
+                    }
+                };
+
+                const scrollToBottom = () => {
+                    if (chatContainer.value) {
+                        chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+                    }
+                };
+
+                const autoResizeTextarea = () => {
+                    const el = textarea.value;
+                    if (el) {
+                        el.style.height = 'auto';
+                        el.style.height = el.scrollHeight + 'px';
+                    }
+                };
+
+                watch(inputMessage, () => {
+                    nextTick(autoResizeTextarea);
+                });
+
+                const handleEnter = (e) => {
+                    if (!e.shiftKey) {
+                        sendMessage();
+                    }
+                };
+
+                const quickAsk = (msg) => {
+                    inputMessage.value = msg;
+                    sendMessage();
+                };
+
+                const sendMessage = async () => {
+                    const msg = inputMessage.value.trim();
+                    if (!msg || isGenerating.value) return;
+
+                    // Add User Message
+                    currentMessages.value.push({
+                        role: 'user',
+                        content: msg,
+                        timestamp: Date.now()
+                    });
+
+                    inputMessage.value = '';
+                    isGenerating.value = true;
+                    nextTick(() => {
+                        scrollToBottom();
+                        autoResizeTextarea();
+                    });
+
+                    // Create AI Message placeholder
+                    const aiMsgIndex = currentMessages.value.push({
+                        role: 'ai',
+                        content: '',
+                        thinking: '',
+                        isStreaming: true,
+                        timestamp: Date.now()
+                    }) - 1;
+
+                    try {
+                        const response = await fetch(`http://localhost:8888/three-stage/stream?msg=${encodeURIComponent(msg)}`);
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+
+                            const chunk = decoder.decode(value, { stream: true });
+                            currentMessages.value[aiMsgIndex].content += chunk;
+                            nextTick(scrollToBottom);
+                        }
+
+                        // 流式结束后统一解析思维链
+                        const fullContent = currentMessages.value[aiMsgIndex].content;
+                        const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>/);
+                        if (thinkMatch) {
+                            currentMessages.value[aiMsgIndex].thinking = thinkMatch[1].trim();
+                            currentMessages.value[aiMsgIndex].content = fullContent.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+                        }
+                    } catch (error) {
+                        currentMessages.value[aiMsgIndex].content += '\n\n[系统错误: 连接失败]';
+                    } finally {
+                        currentMessages.value[aiMsgIndex].isStreaming = false;
+                        isGenerating.value = false;
+                        updateCurrentChat();
+                    }
+                };
+
+                // Init
+                onMounted(() => {
+                    updateTheme();
+                    if (currentUser.value) {
+                        loadHistory();
+                    }
+                });
+
+                // 获取当前UUID
+                const getCurrentChatUUID = () => currentChatUUID.value;
+                window.getCurrentChatUUID = getCurrentChatUUID;
+
+                return {
+                    currentUser,
+                    loginForm,
+                    isSidebarOpen,
+                    isDarkMode,
+                    inputMessage,
+                    isGenerating,
+                    chatContainer,
+                    textarea,
+                    chatHistory,
+                    currentChatId,
+                    currentChatUUID,
+                    currentMessages,
+                    login,
+                    logout,
+                    toggleSidebar,
+                    toggleTheme,
+                    startNewChat,
+                    loadChat,
+                    deleteChat,
+                    renderMarkdown,
+                    handleEnter,
+                    sendMessage,
+                    quickAsk,
+                    getCurrentChatUUID
+                };
             }
-        };
-    }
-
-    sendButton.addEventListener('click', () => {
-        const msg = inputElement.value.trim();
-        if (msg) {
-            startStream(msg);
-            inputElement.value = '';
-        }
-    });
-
-    inputElement.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            sendButton.click();
-        }
-    });
-
-    document.addEventListener('DOMContentLoaded', getOrCreateConversationId);
-</script>
+        }).mount('#app');
+    </script>
 </body>
+
 </html>
