@@ -6,7 +6,8 @@ spring:
   ai:
     # ❗ 移除 alibaba 层级，直接在 ai 下配置 dashscope
     dashscope:
-      api-key: sk-9b7025eed55f4cfbb4ea1dbb11bfacdc # 使用环境变量注入
-    embedding:
-      # ???? DashScope ??? embedding ??
-      model: text-embedding-v1
+      api-key: sk-9542ddc0ec1e40c0a4f1b0d3d389e778} # 使用环境变量注入，提供默认值
+      chat:
+        options:
+          model: qwen-max # 使用文本模型避免 VL 模型的 URL 参数问题
+

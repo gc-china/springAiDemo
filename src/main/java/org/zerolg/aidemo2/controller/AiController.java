@@ -16,10 +16,11 @@ public class AiController {
     }
 
     /**
-     * 最终优化的混合路由流式接口 (Tool Override + 动态工具注册)
+     * 最终优化的混合路由流式接口 (Tool Override + 动态工具注册 + 多轮对话)
      */
     @GetMapping("/three-stage/stream")
-    public Flux<String> threeStageHybridChatStream(@RequestParam String msg) {
-        return aiService.processQuery(msg);
+    public Flux<String> threeStageHybridChatStream(@RequestParam String msg, 
+                                                   @RequestParam(defaultValue = "default") String chatId) {
+        return aiService.processQuery(chatId, msg);
     }
 }
