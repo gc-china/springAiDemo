@@ -6,7 +6,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
 
-import java.lang.reflect.Method;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.type.MethodMetadata;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -21,6 +26,8 @@ import java.util.stream.Collectors;
  */
 @Configuration
 public class ToolRegistry {
+
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(ToolRegistry.class);
 
     @Autowired
     private ApplicationContext applicationContext;
@@ -55,20 +62,31 @@ public class ToolRegistry {
      */
     private boolean hasDescriptionAnnotation(String beanName) {
         try {
-            // 获取 Bean 的定义类
-            Class<?> beanClass = applicationContext.getType(beanName);
-            if (beanClass == null) return false;
-
-            // 检查类上的方法是否有 @Description 注解
-            for (Method method : beanClass.getDeclaredMethods()) {
-                if (method.getName().equals(beanName) &&
-                    method.isAnnotationPresent(Description.class)) {
-                    return true;
+            if (applicationContext instanceof ConfigurableApplicationContext) {
+                ConfigurableListableBeanFactory factory = ((ConfigurableApplicationContext) applicationContext).getBeanFactory();
+                try {
+                    BeanDefinition bd = factory.getBeanDefinition(beanName);
+                    if (bd instanceof AnnotatedBeanDefinition) {
+                        MethodMetadata metadata = ((AnnotatedBeanDefinition) bd).getFactoryMethodMetadata();
+                        if (metadata != null && metadata.isAnnotated(Description.class.getName())) {
+                            return true;
+                        }
+                    }
+                } catch (NoSuchBeanDefinitionException e) {
+                    // ignore
                 }
             }
+            
+            // Fallback: 检查类本身是否有 @Description (如果是 @Component 定义的 Function)
+            Class<?> beanClass = applicationContext.getType(beanName);
+            if (beanClass != null && beanClass.isAnnotationPresent(Description.class)) {
+                return true;
+            }
+
             return false;
         } catch (Exception e) {
-            return false;  // 出错则不包含
+            logger.warn("检查工具注解失败: {}", beanName, e);
+            return false;
         }
     }
 
@@ -99,7 +117,7 @@ public class ToolRegistry {
             }
         }
 
-        System.out.println(">>> 📂 工具分类完成: " + categories.getCategorySummary());
+        logger.info(">>> 📂 工具分类完成: {}", categories.getCategorySummary());
         return categories;
     }
 

@@ -83,6 +83,9 @@ src/main/java/org/zerolg/aidemo2/
 - **分支管理**: Main 为稳定分支，Feature 分支开发新功能。
 - **提交规范**: `feat: 增加新功能`, `fix: 修复bug`, `docs: 更新文档`。
 
+| **P2** | **架构拆分** | ✅ 已完成 | 拆分 `RagService` 和 `PromptManager` |
+| **P2** | **测试覆盖** | ⏳ 待开始 | 补充 AI 组件的单元测试与集成测试 |
+
 ---
 **Maintainer**: Yucheng Guan
 **License**: MIT

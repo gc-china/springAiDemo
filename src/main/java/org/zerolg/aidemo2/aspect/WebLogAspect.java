@@ -1,6 +1,7 @@
 package org.zerolg.aidemo2.aspect;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.UUID;
+
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -15,7 +16,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.util.UUID;
 
 /**
  * 统一日志切面
