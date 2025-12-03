@@ -64,4 +64,32 @@ public class RedisStreamConfig {
         container.start();
         return subscription;
     }
+
+    /**
+     * 配置 Ingestion Stream 监听
+     * 
+     * @param connectionFactory Redis 连接工厂
+     * @param consumer          摄入消费者 Bean
+     * @return 订阅对象
+     */
+    @Bean
+    public Subscription ingestionSubscription(RedisConnectionFactory connectionFactory,
+            org.zerolg.aidemo2.service.stream.IngestionConsumer consumer) {
+
+        StreamMessageListenerContainer.StreamMessageListenerContainerOptions<String, MapRecord<String, String, String>> options = StreamMessageListenerContainer.StreamMessageListenerContainerOptions
+                .builder()
+                .pollTimeout(Duration.ofMillis(100))
+                .build();
+
+        StreamMessageListenerContainer<String, MapRecord<String, String, String>> container = StreamMessageListenerContainer
+                .create(connectionFactory, options);
+
+        Subscription subscription = container.receive(
+                Consumer.from("ingestion-worker-group", "worker-1"),
+                StreamOffset.create("ingestion:stream", ReadOffset.lastConsumed()),
+                consumer);
+
+        container.start();
+        return subscription;
+    }
 }

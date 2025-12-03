@@ -32,25 +32,25 @@
   - [ ] 归档失败率统计
 
 ### 1.2 向量知识库（PGVector）
-- [ ] 数据库表结构设计
-  - [ ] `document` 表（文档级元数据）
-  - [ ] `document_chunk` 表（切片级记录）
-  - [ ] 添加 chunk_hash、metadata JSONB 字段
-- [ ] 切片策略实现
-  - [ ] 实现 200-600 tokens 切片
-  - [ ] 实现 50-150 tokens 重叠
+- ✅ 数据库表结构设计
+  - ✅ `document` 表（文档级元数据）
+  - ✅ `document_chunk` 表（切片级记录）
+  - ✅ 添加 chunk_hash、metadata JSONB 字段
+- ✅ 切片策略实现
+  - ✅ 实现 200-600 tokens 切片 (默认 500)
+  - ✅ 实现 50-150 tokens 重叠 (默认 50)
   - [ ] 按自然段/句子切分
-- [ ] Embedding 与批量插入
-  - [ ] 批量生成 embedding
-  - [ ] 批量写入数据库
+- ✅ Embedding 与批量插入
+  - ✅ 批量生成 embedding (Spring AI)
+  - ✅ 批量写入数据库 (MyBatis Plus + VectorStore)
   - [ ] chunk_hash 重复检测
-- [ ] 索引与检索引擎
-  - [ ] 配置 PGVector HNSW/IVFFLAT 索引
-  - [ ] metadata 字段 GIN 索引
+- ✅ 索引与检索引擎
+  - ✅ 配置 PGVector HNSW/IVFFLAT 索引
+  - ✅ metadata 字段 GIN 索引
   - [ ] 实现租户/语言过滤
-- [ ] 可追溯性
-  - [ ] 添加 source_file、page、paragraph_index
-  - [ ] RAG 结果引用来源
+- ✅ 可追溯性
+  - ✅ 添加 source_file、page、paragraph_index
+  - ✅ RAG 结果引用来源
 - [ ] 扩展策略
   - [ ] 表分区（按 tenant/时间）
   - [ ] read replicas 配置
@@ -69,20 +69,20 @@
 ## 阶段二：知识库自动化与高级 RAG
 
 ### 2.1 文档 Ingestion（异步 ETL）
-- [ ] 异步 ETL 流程
-  - [ ] 前端上传接口（返回 upload_id）
-  - [ ] 消息队列集成（Kafka/RabbitMQ/Pulsar）
-  - [ ] Worker 异步处理
-  - [ ] 状态更新与通知（Webhook/SSE）
-- [ ] 文档解析能力
-  - [ ] Tika/Unstructured 集成
+- ✅ 异步 ETL 流程
+  - ✅ 前端上传接口（返回 ingestionId）
+  - ✅ Redis Stream 集成（任务队列）
+  - ✅ Worker 异步处理（IngestionConsumer）
+  - ✅ 状态更新与查询（Redis Hash）
+- ✅ 文档解析能力
+  - ✅ Apache Tika 集成
   - [ ] 表格提取
   - [ ] OCR 集成（confidence threshold）
-- [ ] 切片质量控制
-  - [ ] 语义完整性保证
-  - [ ] 重叠设置优化
-- [ ] 异步化与进度管理
-  - [ ] status API 实现
+- ✅ 切片质量控制
+  - ✅ 语义完整性保证（Token-based + Overlap）
+  - ✅ 重叠设置优化（50 tokens）
+- ✅ 异步化与进度管理
+  - ✅ status API 实现（/status/{id}）
   - [ ] SSE/Webhook 通知
 - [ ] 重复与去重
   - [ ] 文件级 hash
@@ -336,16 +336,15 @@
 - [x] 会话记忆（ChatMemory -> Redis Session Layer）
 - [x] 流式响应（SSE）
 - [x] Redis 会话存储层（SessionMemoryService）
+- [x] 向量知识库（PGVector + MyBatis Plus）
+- [x] 异步文档摄入（Tika + Redis Stream）
 
 ### 进行中 🚧
-- [ ] 向量知识库优化（当前使用 SimpleVectorStore）
 - [ ] 混合检索与 Reranker
 - [ ] 完整的监控与告警体系
+- [ ] 文档去重与错误重试
 
 ### 待开始 ⏳
-- [ ] PostgreSQL + PGVector 迁移
-- [ ] PostgreSQL + PGVector 迁移
-- [ ] 异步 ETL pipeline
 - [ ] Slot Filling 状态机
 - [ ] 前端思维链可视化
 - [ ] 安全认证与多租户

@@ -28,10 +28,11 @@ spring:
           max-wait: -1ms
   
   # PostgreSQL Configuration
+  # PostgreSQL Configuration
   datasource:
     url: jdbc:postgresql://localhost:5432/aidemo
     username: postgres
-    password: password
+    password: postgres
     driver-class-name: org.postgresql.Driver
 
   ai:
@@ -41,6 +42,7 @@ spring:
         dimension: 1536
         distance-type: COSINE
         initialize-schema: true
+        remove-existing-vector-store-table: false
     rag:
     topK: 8
     similarityThreshold: 0.4  

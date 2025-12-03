@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 16 + PGVector (向量数据库 + 关系型数据库)
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: aidemo-pgvector
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=aidemo
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    restart: always
+    networks:
+      - aidemo-network
+
+  # Redis 7.0 (会话存储 + Stream 队列)
+  redis:
+    image: redis:7.0-alpine
+    container_name: aidemo-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - ./redis-data:/data
+    restart: always
+    networks:
+      - aidemo-network
+
+  # Redis Commander (可视化管理工具 - 可选)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: aidemo-redis-commander
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    restart: always
+    networks:
+      - aidemo-network
+
+networks:
+  aidemo-network:
+    driver: bridge
