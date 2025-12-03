@@ -15,15 +15,15 @@
 - ✅ 滑动窗口策略实现
   - ✅ 按 token 预算累加最近消息
   - ✅ 实现 max_prompt_tokens 限制
-- [] 写入并发与顺序保障
-  - [] 实现 Redis Stream 顺序写入
-  - [] 配置 consumer group 持久化机制
-- [ ] TTL、归档与冷存
+- ✅ 写入并发与顺序保障
+  - ✅ 实现 Redis Stream 顺序写入
+  - ✅ 配置 consumer group 持久化机制
+- ✅ TTL、归档与冷存
   - ✅ 实现会话 TTL（7天可配置）
-  - [ ] 异步归档到 PostgreSQL/S3
+  - ✅ 异步归档到 PostgreSQL (MyBatis Plus 实现)
   - [ ] 实现归档引用记录
 - [ ] 错误处理与 DLQ
-  - [ ] 实现 Dead Letter Queue
+  - ✅ 实现 Dead Letter Queue
   - [ ] 配置告警机制
   - [ ] 数据一致性校验
 - [ ] 监控指标

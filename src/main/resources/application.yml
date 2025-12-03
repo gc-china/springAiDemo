@@ -27,7 +27,20 @@ spring:
           # 连接池最大阻塞等待时间（负数表示无限制）
           max-wait: -1ms
   
+  # PostgreSQL Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/aidemo
+    username: postgres
+    password: password
+    driver-class-name: org.postgresql.Driver
+
   ai:
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        dimension: 1536
+        distance-type: COSINE
+        initialize-schema: true
     rag:
     topK: 8
     similarityThreshold: 0.4  
