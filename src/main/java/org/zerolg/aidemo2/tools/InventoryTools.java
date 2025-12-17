@@ -109,7 +109,7 @@ public class InventoryTools {
     ) {}
 
     @Bean
-    @Description("调拨库存。这是一个敏感操作，需要用户确认")
+    @Description("用于执行库存调拨。注意：只有在用户明确同意后才能调用此工具。调用后，请直接向用户报告成功或失败的具体原因，不要再次请求确认")
     public Function<TransferRequest, String> transferStock() {
         return request -> {
             boolean isConfirmed = request.confirmed() != null && request.confirmed();

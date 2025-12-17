@@ -644,7 +644,7 @@
                     inputMessage.value = msg;
                     sendMessage();
                 };
-                // ✅ 替换 index.html 中的 sendMessage 方法
+                // ✅ 修复后的 sendMessage 方法
                 const sendMessage = () => {
                     const msg = inputMessage.value.trim();
                     if (!msg || isGenerating.value) return;
@@ -653,6 +653,7 @@
                     currentMessages.value.push({role: 'user', content: msg, timestamp: Date.now()});
                     inputMessage.value = '';
                     isGenerating.value = true;
+                    updateCurrentChat();
                     nextTick(() => {
                         scrollToBottom();
                         autoResizeTextarea();
@@ -669,20 +670,33 @@
                     console.log("发起请求:", url);
                     let eventSource = new EventSource(url);
 
-                    // 🔥 防重连锁：确保 close 只被调用一次，且彻底
+                    // 🔥 内部状态重置逻辑 (补全缺失的函数)
                     let isClosed = false;
                     const forceClose = () => {
                         if (isClosed) return;
                         isClosed = true;
-                        console.log("🛑 强制关闭连接");
-                        eventSource.close();
-                        eventSource = null; // 销毁对象
-                        finalizeMessage(aiMsgIndex);
+                        console.log("🛑 连接关闭，重置状态");
+
+                        if (eventSource) {
+                            eventSource.close();
+                            eventSource = null;
+                        }
+
+                        // ✅ 关键修复：直接在这里重置 UI 状态
+                        isGenerating.value = false; // 让按钮变回“发送”
+                        if (currentMessages.value[aiMsgIndex]) {
+                            currentMessages.value[aiMsgIndex].isStreaming = false; // 停止光标闪烁
+                        }
+                        updateCurrentChat();
+                        // 自动聚焦回输入框
+                        nextTick(() => {
+                            if (textarea.value) textarea.value.focus();
+                        });
                     };
 
                     // 监听消息
                     eventSource.addEventListener('message', (e) => {
-                        if (isClosed) return; // 如果已关闭，丢弃后续包
+                        if (isClosed) return;
                         currentMessages.value[aiMsgIndex].content += e.data;
                         nextTick(scrollToBottom);
                     });
@@ -690,51 +704,49 @@
                     // 监听验证结果
                     eventSource.addEventListener('verification', (e) => {
                         if (isClosed) return;
-                        console.log("收到验证结果:", e.data);
 
-                        const result = JSON.parse(e.data);
-                        const aiMsg = currentMessages.value[aiMsgIndex];
+                        try {
+                            const result = JSON.parse(e.data);
+                            const aiMsg = currentMessages.value[aiMsgIndex];
 
-                        if (result.passed) {
-                            // ✅ 修复：宽松判断 0.5 (防止浮点数差异)
-                            if (result.confidence <= 0.55) {
-                                aiMsg.verification = {
-                                    status: 'info', // 蓝色
-                                    icon: 'ri-lightbulb-flash-line',
-                                    text: '通用知识 (无文档依据)'
-                                };
+                            if (result.passed) {
+                                if (result.confidence <= 0.55) {
+                                    aiMsg.verification = {
+                                        status: 'info',
+                                        icon: 'ri-lightbulb-flash-line',
+                                        text: '通用知识'
+                                    };
+                                } else {
+                                    aiMsg.verification = {
+                                        status: 'success',
+                                        icon: 'ri-shield-check-fill',
+                                        text: `来源可信 (${(result.confidence * 100).toFixed(0)}%)`
+                                    };
+                                }
                             } else {
                                 aiMsg.verification = {
-                                    status: 'success', // 绿色
-                                    icon: 'ri-shield-check-fill',
-                                    text: `来源可信 (${(result.confidence * 100).toFixed(0)}%)`
+                                    status: 'warning',
+                                    icon: 'ri-alert-fill',
+                                    text: '内容存疑',
+                                    reason: result.reason
                                 };
                             }
-                        } else {
-                            aiMsg.verification = {
-                                status: 'warning', // 黄色
-                                icon: 'ri-alert-fill',
-                                text: '内容存疑',
-                                reason: result.reason
-                            };
+                        } catch (err) {
+                            console.error("验证结果解析失败", err);
                         }
 
-                        // 收到验证结果，视为正常结束 -> 关！
+                        // 收到验证结果，视为正常结束
                         forceClose();
                     });
 
                     // 监听错误 (包括正常的 EOF)
                     eventSource.onerror = (e) => {
-                        // SSE 标准：连接结束也会触发 onerror
-                        console.log("连接结束或异常", e);
-
+                        // 如果还在 loading 状态就断开了，说明出错了
                         const aiMsg = currentMessages.value[aiMsgIndex];
-                        // 如果断开时还在 loading，说明出错了没拿到结果
-                        if (aiMsg.verification && aiMsg.verification.status === 'loading') {
+                        if (aiMsg && aiMsg.verification && aiMsg.verification.status === 'loading') {
+                            // 把"正在验证"变成空或者错误提示，以免一直转圈
                             aiMsg.verification = null;
                         }
-
-                        // 只要触发 onerror，立刻关！绝不重试！
                         forceClose();
                     };
                 };

@@ -59,7 +59,7 @@ public class ArgumentCorrectionAspect {
                 StockQueryRequest newRequest = new StockQueryRequest(match.id());
                 Object[] newArgs = new Object[]{newRequest};
 
-                return joinPoint.proceed(newArgs);
+                return joinPoint.proceed();
 
             } else if (matches.size() > 1) {
                 // ❓ 情况B: 多个匹配 -> 返回歧义提示
