@@ -4,21 +4,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.zerolg.aidemo2.model.SessionMessage;
 import org.zerolg.aidemo2.properties.SessionProperties;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * AI 服务
@@ -45,37 +50,13 @@ public class AiService {
     private final RagService ragService;
     private final SessionMemoryService sessionMemoryService;
     private final SessionProperties sessionProperties;
-    private final String[] availableTools; // 所有可用工具
-
+    private final VerifierService verifierService; // 新增：幻觉验证服务
+    private final ObjectMapper objectMapper;
+    private final String[] availableTools;
     @Value("classpath:/static/rag-enhanced-prompt.st")
     private Resource ragEnhancedPromptResource;
 
-    /**
-     * 构造函数注入依赖
-     * 
-     * @param chatClient          LLM 客户端
-     * @param ragService          RAG 服务
-     * @param sessionMemoryService 会话记忆服务（Redis 实现）
-     * @param sessionProperties   会话配置
-     * @param availableToolNames  可用工具列表
-     */
-    public AiService(
-            ChatClient chatClient, 
-            RagService ragService,
-            SessionMemoryService sessionMemoryService,
-            SessionProperties sessionProperties,
-            List<String> availableToolNames) {
-        this.chatClient = chatClient;
-        this.ragService = ragService;
-        this.sessionMemoryService = sessionMemoryService;
-        this.sessionProperties = sessionProperties;
-        this.availableTools = availableToolNames.toArray(new String[0]);
-        
-        logger.info("AiService 初始化完成");
-        logger.info("  - 加载工具数量: {}", availableTools.length);
-        logger.info("  - 工具列表: {}", String.join(", ", availableTools));
-        logger.info("  - 会话配置: {}", sessionProperties);
-    }
+
 
     /**
      * 处理用户查询（支持多轮对话）
@@ -88,129 +69,126 @@ public class AiService {
      * 5. 构建 Prompt（系统提示 + RAG 上下文 + 历史消息 + 当前问题）
      * 6. 调用 LLM 生成回复（流式）
      * 7. 保存 AI 回复到 Redis
-     * 
-     * 为什么使用流式响应：
-     * - 用户体验好：实时看到回复，不用等待
-     * - 降低延迟感：即使总时间相同，流式响应感觉更快
-     * - 支持取消：用户可以中途停止生成
-     * 
-     * @param chatId 会话 ID（用于隔离不同用户的上下文）
-     * @param msg    用户查询内容
-     * @return 流式响应（Flux<String>）
      */
-    public Flux<String> processQuery(String chatId, String msg) {
+    public AiService(
+            ChatClient chatClient, // 使用 Builder 以支持默认工具
+            RagService ragService,
+            SessionMemoryService sessionMemoryService,
+            VerifierService verifierService,
+            SessionProperties sessionProperties,
+            ObjectMapper objectMapper,
+            List<String> availableToolNames) {
+
+        this.availableTools = availableToolNames.toArray(new String[0]);
+        // 自动挂载工具
+        this.chatClient = chatClient;
+        this.ragService = ragService;
+        this.sessionMemoryService = sessionMemoryService;
+        this.sessionProperties = sessionProperties;
+        this.verifierService = verifierService;
+        this.objectMapper = objectMapper;
+
+        logger.info("AiService 初始化完成, 加载工具: {}", availableToolNames);
+    }
+
+    /**
+     * 处理用户查询
+     * * 保留了原有的会话管理逻辑：
+     * 1. Check Session -> 2. Save User Msg -> 3. Get History
+     * 新增了：
+     * 4. Hybrid RAG -> 5. Stream -> 6. Verify
+     * * @return Flux<ServerSentEvent<String>> 为了支持验证结果事件，升级了返回类型
+     */
+    public Flux<ServerSentEvent<String>> processQuery(String chatId, String msg) {
         logger.info("开始处理查询: chatId={}, msg={}", chatId, msg);
-        
-        // ==================== 1. 会话管理 ====================
-        
-        // 检查会话是否存在，不存在则创建
+
+        // ==================== 1. 会话管理 (保留原有逻辑) ====================
         if (!sessionMemoryService.sessionExists(chatId)) {
             logger.info("会话不存在，创建新会话: chatId={}", chatId);
-            // TODO: 从请求上下文或 JWT 中获取真实的 userId
             sessionMemoryService.createSession(chatId, "default-user");
         }
-        
-        // 保存用户消息
-        // 简单估算 token 数：中文约 1.5 字符/token，英文约 4 字符/token
+
+        // ==================== 2. 保存用户消息 (保留原有逻辑) ====================
         int userTokens = estimateTokens(msg);
         SessionMessage userMessage = SessionMessage.createUserMessage(msg, userTokens)
                 .withMetadata("userId", "default-user")
                 .withMetadata("source", "web");
-        
+
+        // 关键点：在生成前就保存用户消息
         sessionMemoryService.saveMessage(chatId, userMessage);
         logger.debug("用户消息已保存: messageId={}, tokens={}", userMessage.id(), userTokens);
-        
-        // ==================== 2. 获取历史消息 ====================
-        
-        // 按 token 预算获取历史消息（滑动窗口策略）
-        // 预留一部分 token 给当前问题和 AI 回复
+
+        // ==================== 3. 获取历史消息 (保留原有逻辑) ====================
         int maxHistoryTokens = sessionProperties.getMaxPromptTokens() - userTokens - 1000;
         List<SessionMessage> historyMessages = sessionMemoryService.getMessagesByTokenLimit(
-                chatId, 
+                chatId,
                 maxHistoryTokens
         );
-        
-        logger.debug("获取历史消息: count={}, totalTokens={}", 
-                historyMessages.size(),
-                historyMessages.stream().mapToInt(SessionMessage::tokens).sum());
-        
-        // ==================== 3. RAG 检索 ====================
-        
-        // 委托 RagService 进行检索和重排序
+
+        // ==================== 4. 混合检索 (升级为 Hybrid RAG) ====================
+        // 使用 retrieveAndRerank 替代旧的 retrieve
         return ragService.retrieveAndRerank(msg)
-            .flatMapMany(finalDocuments -> {
-                
-                // ==================== 4. 构建 Prompt ====================
-                
-                // 4.1 构建 RAG 上下文
-                String ragContext = finalDocuments.stream()
-                        .map(Document::getFormattedContent)
-                        .collect(Collectors.joining("\n\n"));
-                
-                // 4.2 构建系统提示词（包含 RAG 上下文）
-                PromptTemplate systemPromptTemplate = new PromptTemplate(ragEnhancedPromptResource);
-                String systemText = systemPromptTemplate.render(Map.of(
-                        "context", ragContext.isEmpty() ? "无" : ragContext
-                ));
-                
-                // 4.3 构建历史消息列表（转换为 Spring AI 的 Message 格式）
-                List<Message> messages = historyMessages.stream()
-                        .map(this::convertToSpringAiMessage)
-                        .collect(Collectors.toList());
-                
-                // 4.4 添加当前用户消息
-                messages.add(new UserMessage(msg));
-                
-                logger.debug("Prompt 构建完成:");
-                logger.debug("  - 系统提示词长度: {} 字符", systemText.length());
-                logger.debug("  - RAG 文档数量: {}", finalDocuments.size());
-                logger.debug("  - 历史消息数量: {}", historyMessages.size());
-                logger.debug("  - 可用工具数量: {}", availableTools.length);
-                
-                // ==================== 5. 调用 LLM（流式） ====================
-                
-                // 注意：这里不再使用 advisors 的 ChatMemory
-                // 而是手动管理历史消息，更灵活可控
-                Flux<String> responseFlux = chatClient.prompt()
-                        .system(systemText)
-                        .messages(messages)  // 传入历史消息
-                        .toolNames(availableTools)
-                        .stream()
-                        .content();
-                
-                // ==================== 6. 保存 AI 回复 ====================
-                
-                // 使用 StringBuilder 收集完整回复
-                StringBuilder fullResponse = new StringBuilder();
-                
-                return responseFlux
-                        // 收集每个流式片段
-                        .doOnNext(chunk -> {
-                            fullResponse.append(chunk);
-                            logger.trace("收到流式片段: {}", chunk);
-                        })
-                        // 流结束时保存完整回复
-                        .doOnComplete(() -> {
-                            String response = fullResponse.toString();
-                            int assistantTokens = estimateTokens(response);
-                            
-                            SessionMessage assistantMessage = SessionMessage.createAssistantMessage(
-                                    response, 
-                                    assistantTokens
-                            );
-                            
-                            sessionMemoryService.saveMessage(chatId, assistantMessage);
-                            
-                            logger.info("AI 回复已保存: messageId={}, tokens={}, length={}", 
-                                    assistantMessage.id(), 
-                                    assistantTokens,
-                                    response.length());
-                        })
-                        // 错误处理
-                        .doOnError(error -> {
-                            logger.error("处理查询时发生错误: chatId={}", chatId, error);
-                        });
-            });
+                .flatMapMany(finalDocuments -> {
+
+                    // ==================== 5. 构建 Prompt (逻辑不变) ====================
+                    String ragContext = finalDocuments.stream()
+                            .map(Document::getFormattedContent)
+                            .collect(Collectors.joining("\n\n"));
+
+                    PromptTemplate systemPromptTemplate = new PromptTemplate(ragEnhancedPromptResource);
+                    String systemText = systemPromptTemplate.render(Map.of(
+                            "context", ragContext.isEmpty() ? "暂无相关背景知识。" : ragContext
+                    ));
+
+                    List<Message> messages = historyMessages.stream()
+                            .map(this::convertToSpringAiMessage)
+                            .collect(Collectors.toList());
+                    messages.add(new UserMessage(msg));
+
+                    // ==================== 6. 调用 LLM & 流式响应 ====================
+                    StringBuilder fullResponse = new StringBuilder();
+
+                    return chatClient.prompt()
+                            .system(systemText)
+                            .messages(messages)
+                            .toolNames(availableTools) // 已在构造函数中配置默认工具
+                            .stream()
+                            .content()
+                            .map(chunk -> {
+                                fullResponse.append(chunk);
+                                // 包装为 SSE 消息事件
+                                return ServerSentEvent.builder(chunk)
+                                        .event("message")
+                                        .build();
+                            })
+                            // ==================== 7. 保存 AI 回复 (保留原有逻辑) ====================
+                            .doOnComplete(() -> {
+                                String response = fullResponse.toString();
+                                int assistantTokens = estimateTokens(response);
+                                SessionMessage assistantMessage = SessionMessage.createAssistantMessage(
+                                        response,
+                                        assistantTokens
+                                );
+                                sessionMemoryService.saveMessage(chatId, assistantMessage);
+                                logger.info("AI 回复已保存: tokens={}", assistantTokens);
+                            })
+                            // ==================== 8. 幻觉验证 (新增功能) ====================
+                            .concatWith(Mono.defer(() -> {
+                                // 流结束后，触发验证
+                                return verifierService.verify(msg, finalDocuments, fullResponse.toString())
+                                        .map(result -> {
+                                            try {
+                                                String json = objectMapper.writeValueAsString(result);
+                                                // 发送验证结果事件
+                                                return ServerSentEvent.builder(json)
+                                                        .event("verification")
+                                                        .build();
+                                            } catch (JsonProcessingException e) {
+                                                return ServerSentEvent.<String>builder().build();
+                                            }
+                                        });
+                            }));
+                });
     }
 
     /**
@@ -274,4 +252,6 @@ public class AiService {
         // 至少 1 个 token
         return Math.max(1, tokens);
     }
+
+
 }

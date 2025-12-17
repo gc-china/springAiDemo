@@ -188,6 +188,67 @@
         .dark ::-webkit-scrollbar-thumb:hover {
             background: #6b7280;
         }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-top: 8px;
+            transition: all 0.3s;
+        }
+
+        .status-badge.loading {
+            background-color: #f3f4f6;
+            color: #6b7280;
+            border: 1px solid #e5e7eb;
+        }
+
+        .status-badge.success {
+            background-color: #ecfdf5;
+            color: #059669;
+            border: 1px solid #a7f3d0;
+        }
+
+        .status-badge.warning {
+            background-color: #fffbeb;
+            color: #d97706;
+            border: 1px solid #fcd34d;
+            cursor: help;
+        }
+
+        .dark .status-badge.loading {
+            background-color: #374151;
+            color: #9ca3af;
+            border-color: #4b5563;
+        }
+
+        .dark .status-badge.success {
+            background-color: #064e3b;
+            color: #34d399;
+            border-color: #059669;
+        }
+
+        .dark .status-badge.warning {
+            background-color: #78350f;
+            color: #fcd34d;
+            border-color: #b45309;
+        }
+
+        .status-badge.info {
+            background-color: #eff6ff;
+            color: #3b82f6;
+            border: 1px solid #dbeafe;
+        }
+
+        .dark .status-badge.info {
+            background-color: #1e3a8a;
+            color: #93c5fd;
+            border-color: #1d4ed8;
+        }
     </style>
 </head>
 
@@ -352,10 +413,16 @@
 
                         <!-- Content -->
                         <div v-if="msg.role === 'ai'" class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+                        <div class="markdown-body" v-html="renderMarkdown(msg.content)" v-if="msg.role === 'ai'"></div>
                         <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
 
-                        <!-- Cursor for streaming -->
                         <span v-if="msg.isStreaming" class="typing-cursor"></span>
+
+                        <div :class="['status-badge', msg.verification.status]"
+                             :title="msg.verification.reason" v-if="msg.role === 'ai' && msg.verification">
+                            <i :class="msg.verification.icon"></i>
+                            <span>{{ msg.verification.text }}</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -578,18 +645,13 @@
                     inputMessage.value = msg;
                     sendMessage();
                 };
-
-                const sendMessage = async () => {
+                // ✅ 替换 index.html 中的 sendMessage 方法
+                const sendMessage = () => {
                     const msg = inputMessage.value.trim();
                     if (!msg || isGenerating.value) return;
 
-                    // Add User Message
-                    currentMessages.value.push({
-                        role: 'user',
-                        content: msg,
-                        timestamp: Date.now()
-                    });
-
+                    // 1. UI 初始化
+                    currentMessages.value.push({role: 'user', content: msg, timestamp: Date.now()});
                     inputMessage.value = '';
                     isGenerating.value = true;
                     nextTick(() => {
@@ -597,44 +659,87 @@
                         autoResizeTextarea();
                     });
 
-                    // Create AI Message placeholder
+                    // 2. AI 消息占位
                     const aiMsgIndex = currentMessages.value.push({
-                        role: 'ai',
-                        content: '',
-                        thinking: '',
-                        isStreaming: true,
-                        timestamp: Date.now()
+                        role: 'ai', content: '', isStreaming: true, timestamp: Date.now(),
+                        verification: {status: 'loading', icon: 'ri-loader-4-line animate-spin', text: '正在验证...'}
                     }) - 1;
 
-                    try {
-                        const response = await fetch(`http://localhost:8888/three-stage/stream?msg=${encodeURIComponent(msg)}`);
-                        const reader = response.body.getReader();
-                        const decoder = new TextDecoder();
+                    // 3. 建立连接
+                    const url = `http://localhost:8888/three-stage/stream?chatId=${currentChatId.value}&msg=${encodeURIComponent(msg)}`;
+                    console.log("发起请求:", url);
+                    let eventSource = new EventSource(url);
 
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
+                    // 🔥 防重连锁：确保 close 只被调用一次，且彻底
+                    let isClosed = false;
+                    const forceClose = () => {
+                        if (isClosed) return;
+                        isClosed = true;
+                        console.log("🛑 强制关闭连接");
+                        eventSource.close();
+                        eventSource = null; // 销毁对象
+                        finalizeMessage(aiMsgIndex);
+                    };
 
-                            const chunk = decoder.decode(value, { stream: true });
-                            currentMessages.value[aiMsgIndex].content += chunk;
-                            nextTick(scrollToBottom);
+                    // 监听消息
+                    eventSource.addEventListener('message', (e) => {
+                        if (isClosed) return; // 如果已关闭，丢弃后续包
+                        currentMessages.value[aiMsgIndex].content += e.data;
+                        nextTick(scrollToBottom);
+                    });
+
+                    // 监听验证结果
+                    eventSource.addEventListener('verification', (e) => {
+                        if (isClosed) return;
+                        console.log("收到验证结果:", e.data);
+
+                        const result = JSON.parse(e.data);
+                        const aiMsg = currentMessages.value[aiMsgIndex];
+
+                        if (result.passed) {
+                            // ✅ 修复：宽松判断 0.5 (防止浮点数差异)
+                            if (result.confidence <= 0.55) {
+                                aiMsg.verification = {
+                                    status: 'info', // 蓝色
+                                    icon: 'ri-lightbulb-flash-line',
+                                    text: '通用知识 (无文档依据)'
+                                };
+                            } else {
+                                aiMsg.verification = {
+                                    status: 'success', // 绿色
+                                    icon: 'ri-shield-check-fill',
+                                    text: `来源可信 (${(result.confidence * 100).toFixed(0)}%)`
+                                };
+                            }
+                        } else {
+                            aiMsg.verification = {
+                                status: 'warning', // 黄色
+                                icon: 'ri-alert-fill',
+                                text: '内容存疑',
+                                reason: result.reason
+                            };
                         }
 
-                        // 流式结束后统一解析思维链
-                        const fullContent = currentMessages.value[aiMsgIndex].content;
-                        const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>/);
-                        if (thinkMatch) {
-                            currentMessages.value[aiMsgIndex].thinking = thinkMatch[1].trim();
-                            currentMessages.value[aiMsgIndex].content = fullContent.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+                        // 收到验证结果，视为正常结束 -> 关！
+                        forceClose();
+                    });
+
+                    // 监听错误 (包括正常的 EOF)
+                    eventSource.onerror = (e) => {
+                        // SSE 标准：连接结束也会触发 onerror
+                        console.log("连接结束或异常", e);
+
+                        const aiMsg = currentMessages.value[aiMsgIndex];
+                        // 如果断开时还在 loading，说明出错了没拿到结果
+                        if (aiMsg.verification && aiMsg.verification.status === 'loading') {
+                            aiMsg.verification = null;
                         }
-                    } catch (error) {
-                        currentMessages.value[aiMsgIndex].content += '\n\n[系统错误: 连接失败]';
-                    } finally {
-                        currentMessages.value[aiMsgIndex].isStreaming = false;
-                        isGenerating.value = false;
-                        updateCurrentChat();
-                    }
+
+                        // 只要触发 onerror，立刻关！绝不重试！
+                        forceClose();
+                    };
                 };
+
 
                 // Init
                 onMounted(() => {

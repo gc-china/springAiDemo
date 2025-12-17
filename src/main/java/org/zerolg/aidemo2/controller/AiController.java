@@ -1,5 +1,8 @@
 package org.zerolg.aidemo2.controller;
 
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,9 +21,10 @@ public class AiController {
     /**
      * 最终优化的混合路由流式接口 (Tool Override + 动态工具注册 + 多轮对话)
      */
-    @GetMapping("/three-stage/stream")
-    public Flux<String> threeStageHybridChatStream(@RequestParam String msg, 
-                                                   @RequestParam(defaultValue = "default") String chatId) {
+
+    @CrossOrigin(origins = "*") // 允许跨域
+    @GetMapping(value = "/three-stage/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> chat(@RequestParam String chatId, @RequestParam String msg) {
         return aiService.processQuery(chatId, msg);
     }
 }

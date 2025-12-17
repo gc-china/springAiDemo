@@ -97,10 +97,11 @@
   - [ ] 失败率统计
 
 ### 2.2 混合检索与 Reranker
-- [ ] 混合检索实现
-  - [ ] 向量召回（Top N_vector）
-  - [ ] 全文召回（Top N_text）
-  - [ ] Reciprocal Rank Fusion 融合
+
+- ✅ 混合检索实现
+  - ✅ 向量召回（Top N_vector）
+  - ✅ 全文召回（Top N_text）
+  - ✅ Reciprocal Rank Fusion 融合
 - [ ] Reranker 集成
   - [ ] Reranker 服务部署
   - [ ] 二次精排逻辑
@@ -110,7 +111,7 @@
   - [ ] 引用来源要求
   - [ ] "未找到证据"处理
 - [ ] 幻觉控制（Verifier）
-  - [ ] Verifier 模块实现
+  - ✅ Verifier 模块实现
   - [ ] 断言支持度判断
   - [ ] unsupported 处理
 - [ ] 性能优化

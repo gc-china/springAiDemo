@@ -10,11 +10,13 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.List;
+
 @Configuration
 public class AiConfig {
 
     @Bean
-    public ChatClient chatClient(ChatClient.Builder chatClientBuilder) {
+    public ChatClient chatClient(ChatClient.Builder chatClientBuilder, List<String> availableToolNames) {
         return chatClientBuilder
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory()).build())
                 .build();
