@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import org.zerolg.aidemo2.handler.MapJsonTypeHandler;
 
 import java.time.Instant;
 import java.util.Map;
@@ -13,16 +14,16 @@ import java.util.Map;
  * 会话归档实体类
  * 
  * 映射数据库表: session_archives
- * 
+ *
  * 作用：
  * 用于持久化存储会话事件。
  * 使用 MyBatis Plus 注解进行 ORM 映射。
- * 
+ *
  * 特性：
  * 1. 使用 UUID 作为主键。
  * 2. payload 字段映射为 JSONB 类型，使用 JacksonTypeHandler 自动处理 JSON 转换。
  */
-@TableName(value = "session_archives", autoResultMap = true)
+@TableName(value = "session_archives")
 public class SessionArchive {
 
     /**
@@ -49,7 +50,7 @@ public class SessionArchive {
      * 数据库中存储为 JSONB 类型
      * 使用 JacksonTypeHandler 自动将 Map 转换为 JSON 字符串存储，读取时自动转回 Map
      */
-    @TableField(typeHandler = JacksonTypeHandler.class)
+    @TableField(typeHandler = MapJsonTypeHandler.class)
     private Map<String, Object> payload;
 
     /**

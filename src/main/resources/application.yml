@@ -29,7 +29,7 @@ spring:
   
   # PostgreSQL Configuration
   datasource:
-    url: jdbc:postgresql://localhost:5432/aidemo
+    url: jdbc:postgresql://localhost:5432/aidemo?stringtype=unspecified
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
@@ -43,20 +43,31 @@ spring:
         distance-type: COSINE
         initialize-schema: true
         remove-existing-vector-store-table: false
-    # rag: # 这个配置项是无效的，并且 topK 和 similarityThreshold 缩进错误，暂时注释掉
-    # topK: 8
-    # similarityThreshold: 0.4
     dashscope:
       api-key: sk-9542ddc0ec1e40c0a4f1b0d3d389e778
       chat:
         options:
           model: qwen-max
-      # --- 关键补充：配置 Embedding Model ---
-      # VectorStore 的自动配置依赖一个 EmbeddingModel Bean
       embedding:
         options:
           # 指定使用阿里云通义千问的文本向量化模型
           model: text-embedding-v1
+
+# MyBatis Plus 配置
+mybatis-plus:
+  # 指定 Type Handler 扫描包，确保我们自定义的 JsonbTypeHandler 被加载
+  type-handlers-package: org.zerolg.aidemo2.handler
+  configuration:
+    # 开启驼峰命名转换
+    map-underscore-to-camel-case: true
+    # 配置日志实现
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 逻辑删除配置
+      logic-delete-field: isDeleted # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值(默认为 1)
+      logic-not-delete-value: 0 # 逻辑未删除值(默认为 0)
 
 # 会话记忆配置
 session:
