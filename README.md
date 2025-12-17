@@ -1,8 +1,8 @@
 # Enterprise AI Agent Platform - 技术白皮书 (Ultimate Edition)
 
-> **文档版本**: 3.0.0 (Final)  
+> **文档版本**: 3.0.1 (Bugfix Release)  
 > **项目代号**: Spring AI Demo (Enterprise)  
-> **最后更新**: 2025-12-03
+> **最后更新**: 2025-12-17
 
 ---
 
@@ -139,7 +139,7 @@ graph LR
         *   Fields: `totalTokens`, `msgCount`, `lastActive`
         *   作用: 实时监控会话状态，无需遍历 List。
     3.  **L3 归档流 (Redis Stream)**:
-        *   Key: `session:global-stream`
+        * Key: `session:event:stream`
         *   作用: **Write-Ahead Log (WAL)**。所有产生的消息都会异步写入此 Stream，由后台消费者批量写入 PostgreSQL。这解耦了在线业务和离线存储。
 
 ### 4.2 企业级 RAG 知识库 (Enterprise RAG)
@@ -193,6 +193,7 @@ graph LR
     *   非阻塞：上传接口立即返回。
     *   可靠：基于 Redis Stream 的 Consumer Group 机制，确保消息不丢失。
     *   可观测：实时进度追踪。
+    * **启动健壮性**: 消费者具备自动初始化能力，能处理 Redis 中可能存在的脏数据（如类型错误的同名 Key），并避免因竞态条件导致的启动失败。
 
 ---
 
@@ -256,6 +257,12 @@ erDiagram
 ### 6.2 可靠性
 *   **数据持久化**: Redis 开启 RDB/AOF，PostgreSQL 负责最终持久化。
 *   **异常处理**: 全局异常处理器捕获 LLM 调用失败、网络超时等错误，返回友好的错误码。
+* **健壮的 Stream 消费**:
+    * **解决竞态条件**: 通过将 `StreamMessageListenerContainer` 设置为 `autoStartup=false`，并由消费者在
+      `ApplicationReadyEvent` 事件后手动启动，彻底解决了因 Bean 初始化顺序不确定而导致的启动失败问题。
+    * **自动初始化与修复**: 消费者在启动时会检查所需的 Stream 和消费者组。如果 Stream 不存在，会自动创建；如果存在同名但类型错误的
+      Key（脏数据），会强制删除并重建，保证了环境的一致性和启动的成功率。
+    * **手动确认 (ACK)**: 消息在被成功处理后才会被手动 `ACK`，确保了即使在处理过程中发生异常，消息也不会丢失，会在下次被重新投递。
 
 ### 6.3 可观测性 (Planning)
 *   **Metrics**: 集成 Micrometer，暴露 `redis_latency`, `vector_search_duration` 等指标。

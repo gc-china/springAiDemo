@@ -3,65 +3,113 @@ package org.zerolg.aidemo2.service.stream;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.connection.stream.MapRecord;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.stream.StreamListener;
+import org.springframework.data.redis.stream.StreamMessageListenerContainer;
 import org.springframework.stereotype.Service;
 import org.zerolg.aidemo2.model.SessionEvent;
 import org.zerolg.aidemo2.service.SessionArchiver;
 
 import java.util.Map;
+import java.util.Objects;
 
-/**
- * 会话事件消费者 (Redis Stream Listener)
- * 
- * 职责：
- * 监听 Redis Stream 中的会话事件，并调用归档服务进行处理。
- * 实现了 StreamListener 接口，由 RedisMessageListenerContainer 驱动。
- * 
- * 错误处理：
- * 包含了基本的异常捕获逻辑，未来将集成 Dead Letter Queue (DLQ)
- * 以处理无法消费的消息，防止消息丢失。
- */
 @Service
 public class SessionEventConsumer implements StreamListener<String, MapRecord<String, String, String>> {
 
     private static final Logger logger = LoggerFactory.getLogger(SessionEventConsumer.class);
     private final SessionArchiver sessionArchiver;
     private final ObjectMapper objectMapper;
+    private static final String STREAM_KEY = "session:event:stream";
+    private static final String GROUP_NAME = "session-archiver-group";
+    private final StringRedisTemplate redisTemplate;
+    private final StreamMessageListenerContainer<String, MapRecord<String, String, String>> container;
 
-    public SessionEventConsumer(SessionArchiver sessionArchiver, ObjectMapper objectMapper) {
+    @Autowired
+    public SessionEventConsumer(SessionArchiver sessionArchiver,
+                                ObjectMapper objectMapper,
+                                StringRedisTemplate redisTemplate,
+                                @Qualifier("sessionEventContainer") StreamMessageListenerContainer<String, MapRecord<String, String, String>> container) {
         this.sessionArchiver = sessionArchiver;
         this.objectMapper = objectMapper;
+        this.redisTemplate = redisTemplate;
+        this.container = container;
     }
 
-    /**
-     * 处理接收到的 Stream 消息
-     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void initializeAndStartContainer() {
+        try {
+            // 步骤 1: 检查并清理
+            Boolean hasKey = redisTemplate.hasKey(STREAM_KEY);
+            if (Boolean.TRUE.equals(hasKey) && !Objects.equals(redisTemplate.type(STREAM_KEY), DataType.STREAM)) {
+                logger.warn("Key '{}' 存在但类型错误，将删除。", STREAM_KEY);
+                redisTemplate.delete(STREAM_KEY);
+                hasKey = false;
+            }
+
+            // 步骤 2: 创建 Stream
+            if (Boolean.FALSE.equals(hasKey)) {
+                redisTemplate.opsForStream().add(STREAM_KEY, Map.of("init", "stream_created"));
+                logger.info("Stream '{}' 已创建。", STREAM_KEY);
+            }
+
+            // 步骤 3: 创建消费者组
+            try {
+                redisTemplate.opsForStream().createGroup(STREAM_KEY, GROUP_NAME);
+                logger.info("消费者组 '{}' 已创建。", GROUP_NAME);
+            } catch (Exception e) {
+                if (isBusyGroupException(e)) {
+                    logger.info("消费者组 '{}' 已存在。", GROUP_NAME);
+                } else {
+                    throw e;
+                }
+            }
+
+            // 步骤 4: 启动容器
+            if (!container.isRunning()) {
+                container.start();
+                logger.info("SessionEventContainer 已启动。");
+            }
+
+        } catch (Exception e) {
+            logger.error("初始化并启动 SessionEventContainer 失败。", e);
+        }
+    }
+
+    private boolean isBusyGroupException(Throwable e) {
+        if (e == null) return false;
+        if (e.getMessage() != null && e.getMessage().contains("BUSYGROUP")) return true;
+        return isBusyGroupException(e.getCause());
+    }
+
     @Override
     public void onMessage(MapRecord<String, String, String> message) {
         try {
-            // 1. 获取消息内容
             Map<String, String> value = message.getValue();
-            String eventJson = value.get("payload");
-
-            if (eventJson == null) {
-                logger.warn("收到空负载消息，跳过: {}", message.getId());
+            if (value.containsKey("init")) {
+                redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, message.getId());
                 return;
             }
 
-            // 2. 反序列化为 SessionEvent 对象
-            SessionEvent event = objectMapper.readValue(eventJson, SessionEvent.class);
+            String eventJson = value.get("payload");
+            if (eventJson == null) {
+                logger.warn("收到空负载消息，跳过: {}", message.getId());
+                redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, message.getId());
+                return;
+            }
 
-            // 3. 调用归档服务进行处理
+            SessionEvent event = objectMapper.readValue(eventJson, SessionEvent.class);
             sessionArchiver.archive(event);
 
-            // 注意：在自动确认模式下，容器会自动执行 XACK。
-            // 如果配置为手动确认，这里需要手动调用 opsForStream().acknowledge()
+            redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, message.getId());
 
         } catch (Exception e) {
             logger.error("处理会话事件失败: messageId={}", message.getId(), e);
-            // TODO: 实现 Dead Letter Queue (DLQ) 逻辑
-            // 将失败消息发送到 session:event:dlq
         }
     }
 }

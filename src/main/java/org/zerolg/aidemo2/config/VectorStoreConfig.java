@@ -1,22 +1,31 @@
 package org.zerolg.aidemo2.config;
 
 import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.ai.vectorstore.pgvector.PgVectorStore; // ✅ 正确路径
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/**
- * VectorStore 配置类
- * 
- * 注意：Spring AI 1.0.0 使用自动配置方式配置 PgVector
- * 通过 application.yml 配置 spring.ai.vectorstore.pgvector 即可
- * 无需手动创建 PgVectorStore Bean
- */
 @Configuration
 public class VectorStoreConfig {
+
+    /**
+     * 读取配置文件中的参数，保持 application.yml 为单一事实来源
+     */
+    @Value("${spring.ai.vectorstore.pgvector.dimension:1536}")
+    private int dimension;
+
+    @Value("${spring.ai.vectorstore.pgvector.index-type:HNSW}")
+    private PgVectorStore.PgIndexType indexType;
+
+/*    @Value("${spring.ai.vectorstore.pgvector.distance-type:COSINE}")
+    private PgVectorStore.PgDistanceType distanceType;*/
+
+    @Value("${spring.ai.vectorstore.pgvector.initialize-schema:true}")
+    private boolean initializeSchema;
 
     @Bean
     public TokenTextSplitter tokenTextSplitter() {
@@ -24,13 +33,19 @@ public class VectorStoreConfig {
     }
 
     /**
-     * 手动配置 VectorStore（仅在自动配置失败时使用）
-     * 当前使用 application.yml 自动配置，此 Bean 仅作为备份
+     * ✅ 显式定义 PgVectorStore Bean
+     * 解决 "VectorStore required a bean ... that could not be found" 问题
      */
     @Bean
-    @ConditionalOnProperty(name = "spring.ai.vectorstore.pgvector.enabled", havingValue = "false", matchIfMissing = false)
-    public VectorStore fallbackVectorStore(EmbeddingModel embeddingModel) {
-        // 如果 PgVector 自动配置失败，使用内存存储作为降级方案
-        return org.springframework.ai.vectorstore.SimpleVectorStore.builder(embeddingModel).build();
+    public VectorStore vectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
+        // 构建配置对象
+        // 注意：不同版本的 Spring AI 构造函数可能略有不同，
+        // 如果 1.0.0 版本 API 有变，通常IDE会提示使用 PgVectorStoreOptions 或类似的 Builder
+        return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .dimensions(dimension)
+                .indexType(indexType)
+                .distanceType(PgVectorStore.PgDistanceType.COSINE_DISTANCE)
+                .initializeSchema(initializeSchema)
+                .build();
     }
 }
