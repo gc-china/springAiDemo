@@ -22,7 +22,6 @@ public class AiController {
      * 最终优化的混合路由流式接口 (Tool Override + 动态工具注册 + 多轮对话)
      */
 
-    @CrossOrigin(origins = "*") // 允许跨域
     @GetMapping(value = "/three-stage/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> chat(@RequestParam String chatId, @RequestParam String msg) {
         return aiService.processQuery(chatId, msg);

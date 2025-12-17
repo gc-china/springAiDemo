@@ -45,7 +45,7 @@ public class VerifierService {
 
                     if (contextStr.isEmpty()) {
                         // 无上下文时，默认为非事实性闲聊，跳过验证或标记为通过
-                        return new VerificationResult(true, 0.85, "无背景知识，跳过验证", null);
+                        return new VerificationResult(true, 0.85, "无相关文档，基于通用知识回答", null);
                     }
 
                     // 2. 构建 Prompt
@@ -59,7 +59,10 @@ public class VerifierService {
                     // 3. 调用裁判 (建议 temperature=0)
                     BeanOutputConverter<VerificationResult> converter = new BeanOutputConverter<>(VerificationResult.class);
                     String jsonResult = chatClient.prompt().user(prompt).call().content();
-
+                    VerificationResult result = converter.convert(jsonResult);
+                    if (result.passed() && result.confidence() <= 0.85) {
+                        return new VerificationResult(true, 0.85, "文档关联度低，基于通用知识回答", null);
+                    }
                     // 4. 解析结果
                     return converter.convert(jsonResult);
 
