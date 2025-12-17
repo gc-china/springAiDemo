@@ -28,7 +28,6 @@ spring:
           max-wait: -1ms
   
   # PostgreSQL Configuration
-  # PostgreSQL Configuration
   datasource:
     url: jdbc:postgresql://localhost:5432/aidemo
     username: postgres
@@ -39,19 +38,25 @@ spring:
     vectorstore:
       pgvector:
         index-type: HNSW
-        dimension: 1536
+        # 维度需要和 embedding model 匹配，通义千问 text-embedding-v1 模型的维度是 1536
+        dimension: 1536 
         distance-type: COSINE
         initialize-schema: true
         remove-existing-vector-store-table: false
-    rag:
-    topK: 8
-    similarityThreshold: 0.4  
-    # ❗ 移除 alibaba 层级，直接在 ai 下配置 dashscope
+    # rag: # 这个配置项是无效的，并且 topK 和 similarityThreshold 缩进错误，暂时注释掉
+    # topK: 8
+    # similarityThreshold: 0.4
     dashscope:
-      api-key: sk-9542ddc0ec1e40c0a4f1b0d3d389e778 
+      api-key: sk-9542ddc0ec1e40c0a4f1b0d3d389e778
       chat:
         options:
-          model: qwen-max 
+          model: qwen-max
+      # --- 关键补充：配置 Embedding Model ---
+      # VectorStore 的自动配置依赖一个 EmbeddingModel Bean
+      embedding:
+        options:
+          # 指定使用阿里云通义千问的文本向量化模型
+          model: text-embedding-v1
 
 # 会话记忆配置
 session:
@@ -67,5 +72,4 @@ session:
 logging: 
   charset: 
     console: UTF-8 
-    file: UTF-8    
-
+    file: UTF-8
