@@ -43,10 +43,10 @@ public class MockSearchServiceImpl implements MockSearchService {
             String name = entry.getKey();
             String lowerName = name.toLowerCase();
             if (lowerName.equals(lowerQuery)) {
-                results.add(new SearchResult(name, entry.getValue()));
-
+                results.add(new SearchResult(entry.getValue(), name));
+                return results;
             }
-            return results;
+
         }
 
 
