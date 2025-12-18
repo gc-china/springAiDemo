@@ -14,6 +14,7 @@ import java.util.function.Function;
 import org.zerolg.aidemo2.service.InventoryService;
 import org.zerolg.aidemo2.service.MockSearchService;
 import org.zerolg.aidemo2.service.MockSearchService.SearchResult;
+import org.zerolg.aidemo2.service.TransferToolService;
 
 @Configuration
 public class InventoryTools {
@@ -21,10 +22,13 @@ public class InventoryTools {
     private static final Logger logger = LoggerFactory.getLogger(InventoryTools.class);
     private final InventoryService inventoryService;
     private final MockSearchService searchService;
+    private final TransferToolService transferToolService;
 
-    public InventoryTools(InventoryService inventoryService,MockSearchService searchService) {
+    public InventoryTools(InventoryService inventoryService, MockSearchService searchService,
+                          TransferToolService transferToolService) {
         this.inventoryService = inventoryService;
         this.searchService = searchService;
+        this.transferToolService = transferToolService;
     }
 
     // ========================================================================
@@ -43,7 +47,6 @@ public class InventoryTools {
         return request -> {
             // 注意：如果 AOP 工作正常，这里的 product 应该已经被替换为 ID 了
             String rawName = request.product();
-
             // 简单的判断：如果是 P- 开头，说明是 ID
             if (rawName.startsWith("P-")) {
                 int stock = inventoryService.getStock(rawName);
@@ -65,13 +68,12 @@ public class InventoryTools {
                     int stock = inventoryService.getStock(correctedId);
                     return "产品ID [" + rawName + "] 的当前库存为: " + stock;
                 } else if (matches.size() > 1) {
-                    // ❓ 情况B: 多个匹配 -> 返回歧义提示
-                    String names = matches.stream()
-                            .map(SearchResult::name)
-                            .collect(Collectors.joining(", "));
-                    logger.warn("❓ 发现歧义: {} -> [{}]", rawName, names);
-
-                    return "找到多个相关产品: " + names + "。请问您具体是指哪一个？";
+                    return String.format(
+                            "错误：参数 '%s' 存在歧义，无法执行查询。可能有以下产品：%s。\n" +
+                                    "请注意：**不要再次尝试使用相同的参数调用工具**。\n" +
+                                    "请直接回复用户：'找到多个相关产品，请问您是指哪一个？' 并列出候选项。",
+                            rawName, matches
+                    );
 
                 } else {
                     // ❌ 情况C: 无匹配 -> 返回错误
@@ -111,28 +113,6 @@ public class InventoryTools {
     @Bean
     @Description("用于执行库存调拨。注意：只有在用户明确同意后才能调用此工具。调用后，请直接向用户报告成功或失败的具体原因，不要再次请求确认")
     public Function<TransferRequest, String> transferStock() {
-        return request -> {
-            boolean isConfirmed = request.confirmed() != null && request.confirmed();
-
-            if (!isConfirmed) {
-                // 🛑 阶段一：返回确认单
-                logger.info("收到调拨请求，等待确认: {}", request);
-                return String.format("""
-                        ⚠️ **操作确认**
-                        您申请将 %d 个 [%s] 从 %s 调拨到 %s。
-                        请回复“确认”以执行此操作，或回复“取消”以撤销。
-                        """,
-                        request.quantity(), request.product(), request.fromWarehouse(), request.toWarehouse());
-            } else {
-                // ✅ 阶段二：执行操作
-                try {
-                    // 这里简化处理，假设 product 已经是 ID 或者名称 (生产环境这里也可以结合 AOP 矫正)
-                    inventoryService.transferStock(request.product(), request.fromWarehouse(), request.toWarehouse(), request.quantity());
-                    return "✅ 调拨执行成功！";
-                } catch (Exception e) {
-                    return "❌ 执行失败: " + e.getMessage();
-                }
-            }
-        };
+        return transferToolService::executeTransfer;
     }
 }

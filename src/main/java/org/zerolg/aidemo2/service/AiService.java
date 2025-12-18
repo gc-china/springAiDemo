@@ -131,9 +131,25 @@ public class AiService {
                 .flatMapMany(finalDocuments -> {
 
                     // ==================== 5. 构建 Prompt (逻辑不变) ====================
-                    String ragContext = finalDocuments.stream()
+          /*          String ragContext = finalDocuments.stream()
                             .map(Document::getFormattedContent)
-                            .collect(Collectors.joining("\n\n"));
+                            .collect(Collectors.joining("\n\n"));*/
+
+                    StringBuilder contextBuilder = new StringBuilder();
+                    for (int i = 0; i < finalDocuments.size(); i++) {
+                        Document doc = finalDocuments.get(i);
+                        // 获取元数据中的文件名，如果不存在则显示"未知来源"
+                        String sourceName = (String) doc.getMetadata().getOrDefault("file_name", "未知来源");
+
+                        // 格式：[文档 1] (来源: policy.pdf)
+                        // 内容...
+                        contextBuilder.append(String.format("【文档 %d】(来源: %s)\n%s\n\n",
+                                i + 1,
+                                sourceName,
+                                doc.getFormattedContent().trim()));
+                    }
+                    String ragContext = contextBuilder.toString().trim();
+
 
                     PromptTemplate systemPromptTemplate = new PromptTemplate(ragEnhancedPromptResource);
                     String systemText = systemPromptTemplate.render(Map.of(

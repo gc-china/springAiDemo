@@ -42,9 +42,21 @@ public class MockSearchServiceImpl implements MockSearchService {
         for (Map.Entry<String, String> entry : PRODUCT_DB.entrySet()) {
             String name = entry.getKey();
             String lowerName = name.toLowerCase();
+            if (lowerName.equals(lowerQuery)) {
+                results.add(new SearchResult(name, entry.getValue()));
+
+            }
+            return results;
+        }
+
+
+        for (Map.Entry<String, String> entry : PRODUCT_DB.entrySet()) {
+            String name = entry.getKey();
+            String lowerName = name.toLowerCase();
 
             // 简单的模糊匹配逻辑：包含关系
-            // 生产环境会使用更复杂的算法（如编辑距离、拼音匹配、向量相似度）
+            // 生产环境会使用更复杂的算法（如编辑距离、拼
+            // 音匹配、向量相似度）
             if (lowerName.contains(lowerQuery) || isSynonym(lowerQuery, lowerName)) {
                 results.add(new SearchResult(entry.getValue(), name));
             }
