@@ -21,15 +21,15 @@
 - ✅ TTL、归档与冷存
   - ✅ 实现会话 TTL（7天可配置）
   - ✅ 异步归档到 PostgreSQL (MyBatis Plus 实现)
-  - [ ] 实现归档引用记录
+  - ✅ 实现归档引用记录
 - [ ] 错误处理与 DLQ
   - ✅ 实现 Dead Letter Queue
-  - [ ] 配置告警机制
+  - ✅ 配置告警机制
   - [ ] 数据一致性校验
 - [ ] 监控指标
   - [ ] Redis 写入延迟（p50/p95/p99）
-  - [ ] Stream lag 监控
-  - [ ] 归档失败率统计
+  - ✅ Stream lag 监控
+  - ✅ 归档失败率统计
 
 ### 1.2 向量知识库（PGVector）
 - ✅ 数据库表结构设计
@@ -325,28 +325,3 @@
 - [ ] SLA 验证与演练
 
 ---
-
-## 当前项目状态
-
-### 已完成 ✅
-- [x] Spring Boot 3.3.5 + Spring AI 1.0.0 基础框架
-- [x] 工具自动发现与注册（ToolRegistry）
-- [x] 参数矫正策略（ArgumentCorrectionAspect）
-- [x] 人机确认策略（TransferRequest confirmed 字段）
-- [x] 基础 RAG 服务（RagService）
-- [x] 会话记忆（ChatMemory -> Redis Session Layer）
-- [x] 流式响应（SSE）
-- [x] Redis 会话存储层（SessionMemoryService）
-- [x] 向量知识库（PGVector + MyBatis Plus）
-- [x] 异步文档摄入（Tika + Redis Stream）
-
-### 进行中 🚧
-- [ ] 混合检索与 Reranker
-- [ ] 完整的监控与告警体系
-- [ ] 文档去重与错误重试
-
-### 待开始 ⏳
-- [ ] Slot Filling 状态机
-- [ ] 前端思维链可视化
-- [ ] 安全认证与多租户
-- [ ] LLMOps 完整体系
