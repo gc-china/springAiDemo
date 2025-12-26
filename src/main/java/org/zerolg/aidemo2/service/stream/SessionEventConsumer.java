@@ -14,7 +14,6 @@ import org.springframework.data.redis.stream.StreamListener;
 import org.springframework.data.redis.stream.StreamMessageListenerContainer;
 import org.springframework.stereotype.Service;
 import org.zerolg.aidemo2.model.SessionEvent;
-import org.zerolg.aidemo2.service.SessionArchiver;
 
 import java.util.Map;
 import java.util.Objects;
@@ -23,7 +22,6 @@ import java.util.Objects;
 public class SessionEventConsumer implements StreamListener<String, MapRecord<String, String, String>> {
 
     private static final Logger logger = LoggerFactory.getLogger(SessionEventConsumer.class);
-    private final SessionArchiver sessionArchiver;
     private final ObjectMapper objectMapper;
     private static final String STREAM_KEY = "session:event:stream";
     private static final String GROUP_NAME = "session-archiver-group";
@@ -31,11 +29,9 @@ public class SessionEventConsumer implements StreamListener<String, MapRecord<St
     private final StreamMessageListenerContainer<String, MapRecord<String, String, String>> container;
 
     @Autowired
-    public SessionEventConsumer(SessionArchiver sessionArchiver,
-                                ObjectMapper objectMapper,
+    public SessionEventConsumer(ObjectMapper objectMapper,
                                 StringRedisTemplate redisTemplate,
                                 @Qualifier("sessionEventContainer") StreamMessageListenerContainer<String, MapRecord<String, String, String>> container) {
-        this.sessionArchiver = sessionArchiver;
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         this.container = container;
@@ -104,7 +100,10 @@ public class SessionEventConsumer implements StreamListener<String, MapRecord<St
             }
 
             SessionEvent event = objectMapper.readValue(eventJson, SessionEvent.class);
-            sessionArchiver.archive(event);
+
+            // 冲突修复：删除实时归档逻辑！
+            // sessionArchiver.archive(event); 
+            // 现在数据只留在 Redis 中，等待 SessionArchiverTask 定时任务在 7 天后将其搬运到 DB。
 
             redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, message.getId());
 

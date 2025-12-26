@@ -4,146 +4,84 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.stream.StreamListener;
-import org.springframework.data.redis.stream.StreamMessageListenerContainer;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+import org.zerolg.aidemo2.constant.RedisKeys;
 import org.zerolg.aidemo2.model.IngestionStatus;
-import org.zerolg.aidemo2.model.IngestionTask;
-import org.zerolg.aidemo2.service.KnowledgeBaseService;
 import org.zerolg.aidemo2.service.KnowledgeIngestionService;
-import org.zerolg.aidemo2.service.TikaDocumentParser;
+import org.zerolg.aidemo2.service.KnowledgeBaseService;
 
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
+import java.util.HashMap;
 
-@Component
+/**
+ * 文档 Ingestion 消费者 (ETL Worker)
+ * 职责：监听文档上传事件 -> 文本切片 -> 向量化 -> 存入 PGVector
+ */
+@Service
 public class IngestionConsumer implements StreamListener<String, MapRecord<String, String, String>> {
 
     private static final Logger logger = LoggerFactory.getLogger(IngestionConsumer.class);
 
-    private final TikaDocumentParser parser;
-    private final KnowledgeBaseService knowledgeBaseService;
-    private final KnowledgeIngestionService ingestionService;
-    private final ObjectMapper objectMapper;
-    private static final String STREAM_KEY = "ingestion:stream";
-    private static final String GROUP_NAME = "ingestion-worker-group";
     private final StringRedisTemplate redisTemplate;
-    private final StreamMessageListenerContainer<String, MapRecord<String, String, String>> container;
+    private final ObjectMapper objectMapper;
+    private final KnowledgeIngestionService ingestionService; // 注入 Service 用于更新状态
+    private final KnowledgeBaseService knowledgeBaseService; // 注入核心业务 Service
+
+    private static final String GROUP_NAME = "ingestion-worker-group";
 
     @Autowired
-    public IngestionConsumer(TikaDocumentParser parser,
-                             KnowledgeBaseService knowledgeBaseService,
+    public IngestionConsumer(StringRedisTemplate redisTemplate, ObjectMapper objectMapper,
                              KnowledgeIngestionService ingestionService,
-                             ObjectMapper objectMapper,
-                             StringRedisTemplate redisTemplate,
-                             @Qualifier("ingestionContainer") StreamMessageListenerContainer<String, MapRecord<String, String, String>> container) {
-        this.parser = parser;
-        this.knowledgeBaseService = knowledgeBaseService;
-        this.ingestionService = ingestionService;
-        this.objectMapper = objectMapper;
+                             KnowledgeBaseService knowledgeBaseService) {
         this.redisTemplate = redisTemplate;
-        this.container = container;
-    }
-
-    @EventListener(ApplicationReadyEvent.class)
-    public void initializeAndStartContainer() {
-        try {
-            // 步骤 1: 检查并清理
-            Boolean hasKey = redisTemplate.hasKey(STREAM_KEY);
-            if (Boolean.TRUE.equals(hasKey) && !Objects.equals(redisTemplate.type(STREAM_KEY), DataType.STREAM)) {
-                logger.warn("Key '{}' 存在但类型错误，将删除。", STREAM_KEY);
-                redisTemplate.delete(STREAM_KEY);
-                hasKey = false;
-            }
-
-            // 步骤 2: 创建 Stream
-            if (Boolean.FALSE.equals(hasKey)) {
-                redisTemplate.opsForStream().add(STREAM_KEY, Map.of("init", "stream_created"));
-                logger.info("Stream '{}' 已创建。", STREAM_KEY);
-            }
-
-            // 步骤 3: 创建消费者组
-            try {
-                redisTemplate.opsForStream().createGroup(STREAM_KEY, GROUP_NAME);
-                logger.info("消费者组 '{}' 已创建。", GROUP_NAME);
-            } catch (Exception e) {
-                if (isBusyGroupException(e)) {
-                    logger.info("消费者组 '{}' 已存在。", GROUP_NAME);
-                } else {
-                    throw e;
-                }
-            }
-
-            // 步骤 4: 启动容器
-            if (!container.isRunning()) {
-                container.start();
-                logger.info("IngestionContainer 已启动。");
-            }
-
-        } catch (Exception e) {
-            logger.error("初始化并启动 IngestionContainer 失败。", e);
-        }
-    }
-
-    private boolean isBusyGroupException(Throwable e) {
-        if (e == null) return false;
-        if (e.getMessage() != null && e.getMessage().contains("BUSYGROUP")) return true;
-        return isBusyGroupException(e.getCause());
+        this.objectMapper = objectMapper;
+        this.ingestionService = ingestionService;
+        this.knowledgeBaseService = knowledgeBaseService;
     }
 
     @Override
     public void onMessage(MapRecord<String, String, String> message) {
-        logger.info("收到摄入任务: {}", message.getId());
-        
-        IngestionTask task = null;
+        String msgId = message.getId().toString();
         try {
             Map<String, String> value = message.getValue();
+            String payloadJson = value.get("payload");
 
-            if (value.containsKey("init")) {
-                redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, message.getId());
+            if (payloadJson == null) {
+                ack(msgId);
                 return;
             }
 
-            task = objectMapper.convertValue(value, IngestionTask.class);
-            String ingestionId = task.ingestionId();
-            
-            logger.info("开始处理摄入任务: id={}, file={}", ingestionId, task.fileName());
-            
-            ingestionService.updateStatus(ingestionId, IngestionStatus.PROCESSING, 10, "正在解析文档...");
-            
-            String content = parser.parseDocument(task.filePath());
-            ingestionService.updateStatus(ingestionId, IngestionStatus.PROCESSING, 40, "文档解析完成，开始切片...");
-            
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("source", "upload");
-            metadata.put("mime_type", task.mimeType());
-            
-            knowledgeBaseService.ingest(task.fileName(), content, metadata);
-            
-            ingestionService.updateStatus(ingestionId, IngestionStatus.PROCESSING, 90, "向量化完成，写入数据库...");
-            
-            ingestionService.updateStatus(ingestionId, IngestionStatus.COMPLETED, 100, "处理成功");
-            logger.info("摄入任务完成: id={}", ingestionId);
+            Map<String, Object> payload = objectMapper.readValue(payloadJson, Map.class);
 
-            redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, message.getId());
-            
+            String filePath = (String) payload.get("filePath");
+            String ingestionId = (String) payload.get("ingestionId");
+
+            Map<String, Object> metadata = (Map<String, Object>) payload.get("metadata");
+            if (metadata == null) metadata = new HashMap<>();
+
+            // 将所有业务逻辑委托给 KnowledgeBaseService
+            knowledgeBaseService.ingestDocument(ingestionId, filePath, metadata);
+
+            // 确认消息
+            ack(msgId);
+
         } catch (Exception e) {
-            logger.error("摄入任务失败: {}", e.getMessage(), e);
-            if (task != null) {
-                ingestionService.updateStatus(
-                    task.ingestionId(), 
-                    IngestionStatus.FAILED, 
-                    0, 
-                    "处理失败: " + e.getMessage()
-                );
+            logger.error("文档处理失败: {}", msgId, e);
+            // 可以在这里增加失败状态的更新
+            try {
+                Map<String, Object> payload = objectMapper.readValue(message.getValue().get("payload"), Map.class);
+                String ingestionId = (String) payload.get("ingestionId");
+                ingestionService.updateStatus(ingestionId, IngestionStatus.FAILED, 0, "处理异常: " + e.getMessage());
+            } catch (Exception ex) {
+                logger.error("更新失败状态时再次发生异常", ex);
             }
         }
+    }
+
+    private void ack(String msgId) {
+        redisTemplate.opsForStream().acknowledge(RedisKeys.STREAM_DOCUMENT_INGESTION, GROUP_NAME, msgId);
     }
 }

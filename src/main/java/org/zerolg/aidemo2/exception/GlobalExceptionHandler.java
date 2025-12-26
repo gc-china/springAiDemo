@@ -4,9 +4,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.zerolg.aidemo2.common.ApiResponse;
 import org.zerolg.aidemo2.common.BusinessException;
 import org.zerolg.aidemo2.common.ResultCode;
+
+import java.util.Map;
 
 /**
  * 全局异常处理切面
@@ -32,5 +35,18 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleException(Exception e) {
         logger.error("系统异常: ", e);
         return ApiResponse.failed(ResultCode.FAILED.getCode(), "系统繁忙，请稍后重试: " + e.getMessage());
+    }
+
+    /**
+     * 捕获文件过大异常
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public Map<String, Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+        // 这里返回前端能识别的格式
+        return Map.of(
+                "code", 400,
+                "message", "文件大小超过限制，请上传小于 50MB 的文件",
+                "data", null
+        );
     }
 }

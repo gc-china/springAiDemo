@@ -112,7 +112,7 @@ public class RagService {
                         // 注意：这里假设 metadata 不为空，如果为空需要处理 null
                         Map<String, Object> metadata = chunk.getMetadata();
                         if (metadata == null) metadata = new HashMap<>();
-                        return new Document(chunk.getId(), chunk.getContent(), metadata);
+                        return new Document(chunk.getId().toString(), chunk.getContent(), metadata);
                     })
                     .collect(Collectors.toList());
         } catch (Exception e) {

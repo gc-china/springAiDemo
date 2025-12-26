@@ -22,10 +22,10 @@
   - ✅ 实现会话 TTL（7天可配置）
   - ✅ 异步归档到 PostgreSQL (MyBatis Plus 实现)
   - ✅ 实现归档引用记录
-- [ ] 错误处理与 DLQ
+- ✅ 错误处理与 DLQ
   - ✅ 实现 Dead Letter Queue
   - ✅ 配置告警机制
-  - [ ] 数据一致性校验
+  - ✅ 数据一致性校验
 - [ ] 监控指标
   - [ ] Redis 写入延迟（p50/p95/p99）
   - ✅ Stream lag 监控
@@ -37,13 +37,13 @@
   - ✅ `document_chunk` 表（切片级记录）
   - ✅ 添加 chunk_hash、metadata JSONB 字段
 - ✅ 切片策略实现
-  - ✅ 实现 200-600 tokens 切片 (默认 500)
+  - ✅ 实现 200-600 tokens 切片 (默认 500) (已集成 SmartTextSplitter)
   - ✅ 实现 50-150 tokens 重叠 (默认 50)
-  - [ ] 按自然段/句子切分
+  - ✅ 按自然段/句子切分 (已集成 SmartTextSplitter)
 - ✅ Embedding 与批量插入
   - ✅ 批量生成 embedding (Spring AI)
   - ✅ 批量写入数据库 (MyBatis Plus + VectorStore)
-  - [ ] chunk_hash 重复检测
+  - ✅ chunk_hash 重复检测
 - ✅ 索引与检索引擎
   - ✅ 配置 PGVector HNSW/IVFFLAT 索引
   - ✅ metadata 字段 GIN 索引
@@ -76,18 +76,18 @@
   - ✅ 状态更新与查询（Redis Hash）
 - ✅ 文档解析能力
   - ✅ Apache Tika 集成
-  - [ ] 表格提取
+  - ✅ 表格提取
   - [ ] OCR 集成（confidence threshold）
 - ✅ 切片质量控制
   - ✅ 语义完整性保证（Token-based + Overlap）
   - ✅ 重叠设置优化（50 tokens）
 - ✅ 异步化与进度管理
   - ✅ status API 实现（/status/{id}）
-  - [ ] SSE/Webhook 通知
-- [ ] 重复与去重
-  - [ ] 文件级 hash
-  - [ ] chunk-level hash
-  - [ ] 去重逻辑
+  - ✅ SSE/Webhook 通知
+- ✅重复与去重
+  - ✅ 文件级 hash
+  - ✅ chunk-level hash
+  - ✅去重逻辑
 - [ ] 错误与重试策略
   - [ ] 指数退避重试
   - [ ] 失败标记与原因记录

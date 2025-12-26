@@ -3,6 +3,13 @@ server:
 spring:
   application:
     name: aiDemo2
+  servlet:
+    multipart:
+      enabled: true
+      # 单个文件最大限制 (默认 1MB)
+      max-file-size: 50MB
+      # 整个请求最大限制 (默认 10MB)
+      max-request-size: 50MB
   
   # Redis 配置：用于会话存储
   data:
@@ -53,6 +60,7 @@ spring:
           # 指定使用阿里云通义千问的文本向量化模型
           model: text-embedding-v1
 
+
 # MyBatis Plus 配置
 mybatis-plus:
   # 指定 Type Handler 扫描包，确保我们自定义的 JsonbTypeHandler 被加载
@@ -84,3 +92,8 @@ logging:
   charset: 
     console: UTF-8 
     file: UTF-8
+
+# 自定义配置
+file:
+  upload-dir: D:/uploads/ragFiles # Windows 示例路径, 请确保该目录存在
+  # upload-dir: /tmp/ragFiles # Linux/macOS 示例路径

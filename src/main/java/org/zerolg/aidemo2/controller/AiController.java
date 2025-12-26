@@ -1,10 +1,13 @@
 package org.zerolg.aidemo2.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.zerolg.aidemo2.constant.RedisKeys;
@@ -15,9 +18,11 @@ import reactor.core.publisher.Flux;
 import java.util.concurrent.TimeUnit;
 
 @RestController
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class AiController {
 
+    private static final Logger logger = LoggerFactory.getLogger(AiController.class);
     private final AiService aiService;
     private final StringRedisTemplate redisTemplate;
     private final SessionArchiveService sessionArchiveService; // 注入归档服务
@@ -71,7 +76,10 @@ public class AiController {
         // 如果 Redis 中没有该会话的消息记录
         if (Boolean.FALSE.equals(redisTemplate.hasKey(listKey))) {
             // 尝试从 DB 回捞
-            sessionArchiveService.reactivateSession(conversationId);
+            boolean reactivated = sessionArchiveService.reactivateSession(conversationId);
+            if (reactivated) {
+                logger.info("会话 [{}] 已从冷存储回捞至 Redis", conversationId);
+            }
         }
     }
 }

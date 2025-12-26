@@ -11,32 +11,37 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * 文档切片实体
- * 对应数据库表: document_chunk
+ * 向量切片实体
+ * 对应关系型数据库表: document_chunk
+ * 用于后台管理展示和基于 SQL 的全文检索
  */
 @Data
 @TableName(value = "document_chunk", autoResultMap = true)
 public class DocumentChunk {
 
-    @TableId(type = IdType.ASSIGN_UUID)
+    /**
+     * 主键 ID (与 vector_store 中的 ID 保持一致)
+     */
+    @TableId(type = IdType.INPUT)
     private String id;
 
+    /**
+     * 所属文档 ID
+     */
     private String documentId;
+
+    /**
+     * 切片序号
+     */
+    private Integer chunkIndex;
 
     private String content;
 
-    // PGVector 的 vector 类型在 MyBatis 中通常作为 String 或特定对象处理
-    // 这里暂时不映射 embedding 字段，因为通常通过 Spring AI VectorStore 操作向量
-    // 或者需要自定义 TypeHandler
-    // @TableField(typeHandler = VectorTypeHandler.class)
-    // private List<Double> embedding;
-
     private Integer tokenCount;
 
-    private Integer chunkIndex;
+    private LocalDateTime createdAt;
 
+    // 存储额外元数据
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> metadata;
-
-    private LocalDateTime createdAt;
 }

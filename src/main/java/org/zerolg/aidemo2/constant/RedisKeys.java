@@ -5,6 +5,14 @@ package org.zerolg.aidemo2.constant;
  */
 public class RedisKeys {
 
+    // Stream for document ingestion tasks
+    public static final String STREAM_DOCUMENT_INGESTION = "document:ingestion:stream";
+
+    // Stream for session events (e.g., chat messages)
+    public static final String STREAM_SESSION_EVENT = "session:event:stream";
+
+    // --- Session Memory Keys ---
+
     // ZSET: 会话心跳索引 (Score=Timestamp, Member=ConversationId)
     public static final String SESSION_HEARTBEAT = "aidemo:session:heartbeat";
 

@@ -7,12 +7,16 @@ import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.ReadOffset;
 import org.springframework.data.redis.connection.stream.StreamOffset;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.data.redis.stream.StreamMessageListenerContainer;
 import org.springframework.data.redis.stream.Subscription;
 import org.zerolg.aidemo2.service.stream.IngestionConsumer;
 import org.zerolg.aidemo2.service.stream.SessionEventConsumer;
 
 import java.time.Duration;
+
+import org.zerolg.aidemo2.constant.RedisKeys;
 
 /**
  * Redis Stream 配置类
@@ -34,6 +38,7 @@ public class RedisStreamConfig {
         StreamMessageListenerContainer.StreamMessageListenerContainerOptions<String, MapRecord<String, String, String>> options =
                 StreamMessageListenerContainer.StreamMessageListenerContainerOptions.builder()
                         .pollTimeout(Duration.ofMillis(100))
+                        .serializer(new StringRedisSerializer())
                         .build();
 
         StreamMessageListenerContainer<String, MapRecord<String, String, String>> container =
@@ -69,11 +74,21 @@ public class RedisStreamConfig {
     }
 
     @Bean
-    public Subscription ingestionSubscription(StreamMessageListenerContainer<String, MapRecord<String, String, String>> ingestionContainer,
-                                              IngestionConsumer consumer) {
+    public Subscription ingestionSubscription(
+            @org.springframework.beans.factory.annotation.Qualifier("ingestionContainer") StreamMessageListenerContainer<String, MapRecord<String, String, String>> ingestionContainer,
+            IngestionConsumer consumer,
+            StringRedisTemplate redisTemplate) {
+
+        // 确保消费者组存在 (如果不存在则创建)
+        try {
+            redisTemplate.opsForStream().createGroup(RedisKeys.STREAM_DOCUMENT_INGESTION, "ingestion-worker-group");
+        } catch (Exception e) {
+            // 忽略 "BUSYGROUP Consumer Group name already exists" 异常
+        }
+
         return ingestionContainer.receive(
-                Consumer.from("ingestion-worker-group", "worker-1"),
-                StreamOffset.create("ingestion:stream", ReadOffset.lastConsumed()),
+                Consumer.from("ingestion-worker-group", "worker-1"), // 组名必须与 createGroup 一致
+                StreamOffset.create(RedisKeys.STREAM_DOCUMENT_INGESTION, ReadOffset.lastConsumed()),
                 consumer);
     }
 }
