@@ -18,6 +18,9 @@ import org.zerolg.aidemo2.model.ParsedDocument;
 import org.zerolg.aidemo2.support.splitter.SmartTextSplitter;
 import org.zerolg.aidemo2.utils.HashUtils;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -25,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class KnowledgeBaseService {
@@ -278,5 +282,180 @@ public class KnowledgeBaseService {
         }
 
         return documentId;
+    }
+
+    /**
+     * 删除文档及其所有相关数据
+     * 包括：文档记录、切片记录、向量数据、物理文件
+     *
+     * @param documentId 文档ID
+     * @return 删除结果信息
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> deleteDocument(String documentId) {
+        logger.info("开始删除文档: documentId={}", documentId);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("documentId", documentId);
+
+        try {
+            // 1. 查询文档信息
+            org.zerolg.aidemo2.entity.Document document = documentMapper.selectById(documentId);
+            if (document == null) {
+                result.put("status", "error");
+                result.put("message", "文档不存在");
+                return result;
+            }
+
+            logger.info("找到文档: title={}, filePath={}", document.getTitle(), document.getFilePath());
+
+            // 2. 查询文档的所有切片
+            List<DocumentChunk> chunks = documentChunkMapper.selectList(
+                    new LambdaQueryWrapper<DocumentChunk>()
+                            .eq(DocumentChunk::getDocumentId, documentId)
+            );
+
+            logger.info("找到 {} 个文档切片", chunks.size());
+
+            // 3. 删除向量数据
+            int vectorDeleteCount = 0;
+            if (!chunks.isEmpty()) {
+                // 方法1: 根据 document_id 删除
+                vectorDeleteCount = vectorStoreMapper.deleteByDocumentId(documentId);
+                logger.info("删除向量数据: {} 条记录", vectorDeleteCount);
+
+                // 方法2: 如果方法1失败，尝试根据 chunk_id 删除
+                if (vectorDeleteCount == 0) {
+                    List<String> chunkIds = chunks.stream()
+                            .map(DocumentChunk::getId)
+                            .collect(Collectors.toList());
+                    vectorDeleteCount = vectorStoreMapper.deleteByChunkIds(chunkIds);
+                    logger.info("通过 chunk_id 删除向量数据: {} 条记录", vectorDeleteCount);
+                }
+            }
+
+            // 4. 删除文档切片记录
+            int chunkDeleteCount = documentChunkMapper.delete(
+                    new LambdaQueryWrapper<DocumentChunk>()
+                            .eq(DocumentChunk::getDocumentId, documentId)
+            );
+            logger.info("删除文档切片记录: {} 条记录", chunkDeleteCount);
+
+            // 5. 删除文档记录
+            int documentDeleteCount = documentMapper.deleteById(documentId);
+            logger.info("删除文档记录: {} 条记录", documentDeleteCount);
+
+            // 6. 删除物理文件（可选）
+            String filePath = document.getFilePath();
+            boolean fileDeleted = false;
+            if (filePath != null && !filePath.trim().isEmpty()) {
+                try {
+                    Path path = Paths.get(filePath);
+                    if (Files.exists(path)) {
+                        Files.delete(path);
+                        fileDeleted = true;
+                        logger.info("删除物理文件成功: {}", filePath);
+                    } else {
+                        logger.warn("物理文件不存在: {}", filePath);
+                    }
+                } catch (Exception e) {
+                    logger.warn("删除物理文件失败: {}", filePath, e);
+                }
+            }
+
+            // 7. 构建删除结果
+            result.put("status", "success");
+            result.put("message", "文档删除成功");
+            result.put("details", Map.of(
+                    "documentTitle", document.getTitle(),
+                    "chunksDeleted", chunkDeleteCount,
+                    "vectorsDeleted", vectorDeleteCount,
+                    "documentDeleted", documentDeleteCount,
+                    "fileDeleted", fileDeleted,
+                    "filePath", filePath != null ? filePath : "无物理文件"
+            ));
+
+            logger.info("文档删除完成: documentId={}, chunks={}, vectors={}, file={}",
+                    documentId, chunkDeleteCount, vectorDeleteCount, fileDeleted);
+
+            return result;
+
+        } catch (Exception e) {
+            logger.error("删除文档失败: documentId={}", documentId, e);
+            result.put("status", "error");
+            result.put("message", "删除失败: " + e.getMessage());
+            return result;
+        }
+    }
+
+    /**
+     * 批量删除文档
+     *
+     * @param documentIds 文档ID列表
+     * @return 批量删除结果
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> deleteDocuments(List<String> documentIds) {
+        logger.info("开始批量删除文档: count={}", documentIds.size());
+
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> results = new ArrayList<>();
+
+        int successCount = 0;
+        int failureCount = 0;
+
+        for (String documentId : documentIds) {
+            try {
+                Map<String, Object> singleResult = deleteDocument(documentId);
+                results.add(singleResult);
+
+                if ("success".equals(singleResult.get("status"))) {
+                    successCount++;
+                } else {
+                    failureCount++;
+                }
+
+            } catch (Exception e) {
+                logger.error("批量删除中单个文档失败: documentId={}", documentId, e);
+                results.add(Map.of(
+                        "documentId", documentId,
+                        "status", "error",
+                        "message", "删除失败: " + e.getMessage()
+                ));
+                failureCount++;
+            }
+        }
+
+        result.put("status", failureCount == 0 ? "success" : "partial");
+        result.put("message", String.format("批量删除完成: 成功 %d 个, 失败 %d 个", successCount, failureCount));
+        result.put("totalCount", documentIds.size());
+        result.put("successCount", successCount);
+        result.put("failureCount", failureCount);
+        result.put("results", results);
+
+        logger.info("批量删除完成: total={}, success={}, failure={}",
+                documentIds.size(), successCount, failureCount);
+
+        return result;
+    }
+
+    /**
+     * 清理孤立的向量数据
+     * 删除没有对应文档记录的向量数据
+     *
+     * @return 清理结果
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> cleanupOrphanedVectors() {
+        logger.info("开始清理孤立的向量数据...");
+
+        // 这里需要实现复杂的 SQL 查询来找出孤立的向量数据
+        // 暂时返回占位符结果
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
+        result.put("message", "孤立向量数据清理功能待实现");
+        result.put("cleanedCount", 0);
+
+        return result;
     }
 }

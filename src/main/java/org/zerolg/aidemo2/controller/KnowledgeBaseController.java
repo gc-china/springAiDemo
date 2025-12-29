@@ -464,43 +464,144 @@ public class KnowledgeBaseController {
     @DeleteMapping("/document/{documentId}")
     public ResponseEntity<Map<String, Object>> deleteDocument(@PathVariable String documentId) {
         try {
-            // 1. 查询文档信息
-            org.zerolg.aidemo2.entity.Document document = documentMapper.selectById(documentId);
-            if (document == null) {
-                return ResponseEntity.notFound().build();
+            logger.info("收到删除文档请求: documentId={}", documentId);
+
+            // 使用 KnowledgeBaseService 的完整删除方法
+            Map<String, Object> result = knowledgeBaseService.deleteDocument(documentId);
+
+            if ("success".equals(result.get("status"))) {
+                logger.info("文档删除成功: {}", result);
+                return ResponseEntity.ok(result);
+            } else {
+                logger.warn("文档删除失败: {}", result);
+                return ResponseEntity.badRequest().body(result);
             }
-
-            // 2. 删除文档记录
-            documentMapper.deleteById(documentId);
-
-            // 3. 删除相关切片（通过外键约束自动删除）
-            // documentChunkMapper.delete(new LambdaQueryWrapper<DocumentChunk>()
-            //     .eq(DocumentChunk::getDocumentId, documentId));
-
-            // 4. 删除向量数据（需要根据 document_id 删除）
-            // 注意：这里需要添加相应的 Mapper 方法来删除向量数据
-
-            // 5. 删除物理文件（可选）
-            String filePath = document.getFilePath();
-            if (filePath != null && Files.exists(Paths.get(filePath))) {
-                try {
-                    Files.delete(Paths.get(filePath));
-                    logger.info("已删除物理文件: {}", filePath);
-                } catch (Exception e) {
-                    logger.warn("删除物理文件失败: {}", filePath, e);
-                }
-            }
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("message", "文档删除成功");
-
-            return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("删除文档失败: documentId={}", documentId, e);
+            logger.error("删除文档异常: documentId={}", documentId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("status", "error", "message", "删除文档失败"));
+                    .body(Map.of(
+                            "status", "error",
+                            "message", "删除文档异常: " + e.getMessage(),
+                            "documentId", documentId
+                    ));
+        }
+    }
+
+    /**
+     * 批量删除文档接口
+     */
+    @DeleteMapping("/documents")
+    public ResponseEntity<Map<String, Object>> deleteDocuments(@RequestBody Map<String, Object> request) {
+        try {
+            @SuppressWarnings("unchecked")
+            List<String> documentIds = (List<String>) request.get("documentIds");
+
+            if (documentIds == null || documentIds.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "status", "error",
+                        "message", "文档ID列表不能为空"
+                ));
+            }
+
+            logger.info("收到批量删除文档请求: count={}", documentIds.size());
+
+            Map<String, Object> result = knowledgeBaseService.deleteDocuments(documentIds);
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            logger.error("批量删除文档异常", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("status", "error", "message", "批量删除异常: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 清理孤立向量数据接口
+     */
+    @PostMapping("/cleanup/orphaned-vectors")
+    public ResponseEntity<Map<String, Object>> cleanupOrphanedVectors() {
+        try {
+            logger.info("收到清理孤立向量数据请求");
+
+            Map<String, Object> result = knowledgeBaseService.cleanupOrphanedVectors();
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            logger.error("清理孤立向量数据异常", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("status", "error", "message", "清理异常: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 调试引用链接问题的专用接口
+     */
+    @GetMapping("/debug/citation-links/{documentId}")
+    public ResponseEntity<Map<String, Object>> debugCitationLinks(@PathVariable String documentId) {
+        try {
+            logger.info("调试引用链接: documentId={}", documentId);
+
+            Map<String, Object> result = new HashMap<>();
+
+            // 1. 检查文档是否存在
+            org.zerolg.aidemo2.entity.Document document = documentMapper.selectById(documentId);
+            boolean documentExists = document != null;
+
+            // 2. 生成URL（与AiService完全相同的逻辑）
+            String downloadUrl = "/api/ai/knowledge/download/" + documentId;
+            String previewUrl = "/api/ai/knowledge/preview/" + documentId;
+
+            // 3. 构建引用数据（与AiService完全相同的结构）
+            Map<String, Object> citationData = new HashMap<>();
+            citationData.put("documentId", documentId);
+            citationData.put("downloadUrl", downloadUrl);
+            citationData.put("previewUrl", previewUrl);
+
+            if (documentExists) {
+                citationData.put("filename", document.getTitle());
+                citationData.put("fileStatus", document.getFilePath() != null ? "文件正常" : "纯文本");
+                citationData.put("mimeType", document.getMimeType());
+            } else {
+                citationData.put("filename", "文档不存在");
+                citationData.put("fileStatus", "不存在");
+                citationData.put("mimeType", null);
+            }
+
+            // 4. 构建调试信息
+            result.put("documentId", documentId);
+            result.put("documentExists", documentExists);
+            result.put("generatedUrls", Map.of(
+                    "downloadUrl", downloadUrl,
+                    "previewUrl", previewUrl
+            ));
+            result.put("citationData", citationData);
+            result.put("urlValidation", Map.of(
+                    "downloadUrlLength", downloadUrl.length(),
+                    "previewUrlLength", previewUrl.length(),
+                    "downloadUrlFormat", downloadUrl.startsWith("/api/ai/knowledge/download/"),
+                    "previewUrlFormat", previewUrl.startsWith("/api/ai/knowledge/preview/"),
+                    "documentIdInUrls", downloadUrl.contains(documentId) && previewUrl.contains(documentId)
+            ));
+
+            // 5. 测试建议
+            result.put("testSuggestions", Map.of(
+                    "directDownloadTest", "curl -I 'http://localhost:8080" + downloadUrl + "'",
+                    "directPreviewTest", "curl -I 'http://localhost:8080" + previewUrl + "'",
+                    "frontendTest", "检查前端是否正确处理citations事件中的downloadUrl和previewUrl字段"
+            ));
+
+            logger.info("引用链接调试完成: documentExists={}, urls=[{}, {}]",
+                    documentExists, downloadUrl, previewUrl);
+
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            logger.error("调试引用链接失败: documentId={}", documentId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "调试失败", "message", e.getMessage()));
         }
     }
 

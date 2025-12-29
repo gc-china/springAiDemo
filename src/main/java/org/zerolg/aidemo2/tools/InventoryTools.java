@@ -11,8 +11,8 @@ import org.springframework.context.annotation.Description;
 import java.util.function.Function;
 import org.zerolg.aidemo2.service.InventoryService;
 import org.zerolg.aidemo2.service.MockSearchService;
-import org.zerolg.aidemo2.service.stock.StockQueryService;
-import org.zerolg.aidemo2.service.stock.TransferToolService;
+import org.zerolg.aidemo2.service.stock.EnhancedStockQueryService;
+import org.zerolg.aidemo2.service.stock.EnhancedTransferService;
 
 @Configuration
 public class InventoryTools {
@@ -20,35 +20,52 @@ public class InventoryTools {
     private static final Logger logger = LoggerFactory.getLogger(InventoryTools.class);
     private final InventoryService inventoryService;
     private final MockSearchService searchService;
-    private final TransferToolService transferToolService;
-    private final StockQueryService stockQueryService;
+    private final EnhancedStockQueryService stockQueryService;
+    private final EnhancedTransferService transferService;
 
     public InventoryTools(InventoryService inventoryService, MockSearchService searchService,
-                          TransferToolService transferToolService, StockQueryService stockQueryService) {
+                          EnhancedStockQueryService stockQueryService, EnhancedTransferService transferService) {
         this.inventoryService = inventoryService;
         this.searchService = searchService;
         this.stockQueryService = stockQueryService;
-        this.transferToolService = transferToolService;
+        this.transferService = transferService;
     }
 
     // ========================================================================
-    // 方案四：查询工具 (配合 AOP 切面使用)
+    // 升级版工具 - 使用增强服务（集成参数修正系统）
     // ========================================================================
 
     @Bean
-    @Description("查询库存数量。支持模糊名称查询，系统会自动矫正")
+    @Description("智能库存查询工具。支持模糊名称查询，系统会自动矫正和标准化参数")
     public Function<StockQueryRequest, String> queryStock() {
-        return request -> stockQueryService.queryStock(request).toJson();
+        return request -> {
+            // 使用增强版服务，自动进行参数修正
+            var result = stockQueryService.queryStock(
+                    request.product(), null, null, false, "FUZZY");
+            return result.toJson();
+        };
     }
 
     @Bean
-    @Description("用于执行库存调拨。注意：只有在用户明确同意后才能调用此工具。调用后，请直接向用户报告成功或失败的具体原因，不要再次请求确认")
+    @Description("智能库存调拨工具。支持自然语言参数，自动安全确认。注意：只有在用户明确同意后才能调用此工具")
     public Function<TransferRequest, String> transferStock() {
-        return request -> transferToolService.executeTransfer(request).toJson();
+        return request -> {
+            // 使用增强版服务，自动进行参数修正和安全确认
+            var result = transferService.executeTransfer(
+                    request.product(),
+                    request.fromWarehouse(),
+                    request.toWarehouse(),
+                    request.quantity().toString(),
+                    "LLM调拨请求",
+                    "NORMAL",
+                    request.confirmed()
+            );
+            return result.toJson();
+        };
     }
 
     // ========================================================================
-    // 方案三：调拨工具 (内置人机确认逻辑)
+    // 请求对象定义（保持兼容性）
     // ========================================================================
 
     public record TransferRequest(

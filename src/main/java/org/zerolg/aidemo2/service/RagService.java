@@ -166,11 +166,18 @@ public class RagService {
 
             // 生成文件访问 URL，避免 null 值
             if (documentId != null && !documentId.isEmpty()) {
-                metadata.put("download_url", "/api/ai/knowledge/download/" + documentId);
-                metadata.put("preview_url", "/api/ai/knowledge/preview/" + documentId);
+                String downloadUrl = "/api/ai/knowledge/download/" + documentId;
+                String previewUrl = "/api/ai/knowledge/preview/" + documentId;
+                metadata.put("download_url", downloadUrl);
+                metadata.put("preview_url", previewUrl);
+
+                // 添加调试日志确保URL格式一致
+                logger.debug("RagService生成URL: documentId={}, downloadUrl={}, previewUrl={}",
+                        documentId, downloadUrl, previewUrl);
             } else {
                 metadata.put("download_url", "");
                 metadata.put("preview_url", "");
+                logger.debug("RagService: documentId为空，设置空URL");
             }
 
             return new Document(doc.getId(), doc.getFormattedContent(), metadata);

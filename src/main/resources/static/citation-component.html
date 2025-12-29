@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>RAG 引用来源示例</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .chat-message {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+
+        .citation {
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            text-decoration: none;
+            margin: 0 2px;
+            cursor: pointer;
+        }
+
+        .citation:hover {
+            background: #0056b3;
+            color: white;
+        }
+
+        .references {
+            margin-top: 20px;
+            padding: 16px;
+            background: #f1f3f4;
+            border-radius: 8px;
+        }
+
+        .reference-item {
+            margin: 8px 0;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+
+        .reference-actions {
+            margin-top: 8px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 4px 12px;
+            margin-right: 8px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 12px;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 600px;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: black;
+        }
+    </style>
+</head>
+<body>
+<h1>RAG 引用来源和文件溯源示例</h1>
+
+<div class="chat-message">
+    <h3>用户问题：</h3>
+    <p>请介绍一下仓储收入的计算规则？</p>
+</div>
+
+<div class="chat-message">
+    <h3>AI 回答：</h3>
+    <p>
+        根据相关政策，仓储收入的计算主要包括以下几个方面：
+    </p>
+    <p>
+        <strong>1. 标准租金：</strong>在库件数 * 商品体积 * 单价<a class="citation" href="#" onclick="showCitation(1)">[1]</a>。
+        SKU单体需要计算得出，并且不需要区分重/泡，全部按体积计算<a class="citation" href="#"
+                                                                 onclick="showCitation(1)">[1]</a>。
+    </p>
+    <p>
+        <strong>2. 贴标费：</strong>单价 * 贴标数量<a class="citation" href="#" onclick="showCitation(2)">[2]</a>。
+        需要维护贴标标识和应收单价<a class="citation" href="#" onclick="showCitation(2)">[2]</a>。
+    </p>
+    <p>
+        <strong>3. 计费规则：</strong>走增值单<a class="citation" href="#" onclick="showCitation(1)">[1]</a>。
+        计费条件与上述相同（项目编码和客户编码）<a class="citation" href="#" onclick="showCitation(1)">[1]</a>。
+    </p>
+</div>
+
+<div class="references">
+    <h3>📚 参考来源：</h3>
+
+    <div class="reference-item">
+        <strong>[1]</strong> 文件名：仓储计费规则.pdf，来源：第2页/第3段
+        <div class="reference-actions">
+            <button class="btn" onclick="downloadFile('doc1')">📥 下载文件</button>
+            <button class="btn btn-secondary" onclick="previewFile('doc1')">👁️ 预览</button>
+            <button class="btn btn-secondary" onclick="showDetails('doc1')">ℹ️ 详情</button>
+        </div>
+    </div>
+
+    <div class="reference-item">
+        <strong>[2]</strong> 文件名：贴标费用标准.docx，来源：第1页/第2段
+        <div class="reference-actions">
+            <button class="btn" onclick="downloadFile('doc2')">📥 下载文件</button>
+            <button class="btn btn-secondary" onclick="previewFile('doc2')">👁️ 预览</button>
+            <button class="btn btn-secondary" onclick="showDetails('doc2')">ℹ️ 详情</button>
+        </div>
+    </div>
+</div>
+
+<!-- 文档详情模态框 -->
+<div class="modal" id="documentModal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <h2>文档详情</h2>
+        <div id="documentDetails"></div>
+    </div>
+</div>
+
+<script>
+    // 模拟文档数据
+    const documents = {
+        'doc1': {
+            id: 'a338cd4a-43af-487d-b6e5-cdae0ceaed92',
+            title: '仓储计费规则.pdf',
+            mimeType: 'application/pdf',
+            totalTokens: 1500,
+            chunkCount: 8,
+            createdAt: '2024-12-29T10:30:00',
+            downloadUrl: '/api/ai/knowledge/download/a338cd4a-43af-487d-b6e5-cdae0ceaed92',
+            previewUrl: '/api/ai/knowledge/preview/a338cd4a-43af-487d-b6e5-cdae0ceaed92'
+        },
+        'doc2': {
+            id: 'b449de5b-54bf-598e-c7f6-d4ae1df1fa03',
+            title: '贴标费用标准.docx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            totalTokens: 800,
+            chunkCount: 4,
+            createdAt: '2024-12-28T15:20:00',
+            downloadUrl: '/api/ai/knowledge/download/b449de5b-54bf-598e-c7f6-d4ae1df1fa03',
+            previewUrl: '/api/ai/knowledge/preview/b449de5b-54bf-598e-c7f6-d4ae1df1fa03'
+        }
+    };
+
+    function showCitation(citationNumber) {
+        // 高亮显示对应的引用来源
+        const references = document.querySelectorAll('.reference-item');
+        references.forEach((ref, index) => {
+            if (index + 1 === citationNumber) {
+                ref.style.backgroundColor = '#e3f2fd';
+                ref.scrollIntoView({behavior: 'smooth', block: 'center'});
+                setTimeout(() => {
+                    ref.style.backgroundColor = 'white';
+                }, 2000);
+            }
+        });
+    }
+
+    function downloadFile(docKey) {
+        const doc = documents[docKey];
+        if (doc) {
+            // 实际项目中这里会调用真实的下载接口
+            window.open(doc.downloadUrl, '_blank');
+            console.log('下载文件:', doc.title);
+        }
+    }
+
+    function previewFile(docKey) {
+        const doc = documents[docKey];
+        if (doc) {
+            // 实际项目中这里会调用真实的预览接口
+            window.open(doc.previewUrl, '_blank');
+            console.log('预览文件:', doc.title);
+        }
+    }
+
+    function showDetails(docKey) {
+        const doc = documents[docKey];
+        if (doc) {
+            const detailsHtml = `
+                    <p><strong>文档ID:</strong> ${doc.id}</p>
+                    <p><strong>文件名:</strong> ${doc.title}</p>
+                    <p><strong>文件类型:</strong> ${doc.mimeType}</p>
+                    <p><strong>总Token数:</strong> ${doc.totalTokens}</p>
+                    <p><strong>切片数量:</strong> ${doc.chunkCount}</p>
+                    <p><strong>创建时间:</strong> ${new Date(doc.createdAt).toLocaleString()}</p>
+                    <div style="margin-top: 16px;">
+                        <button class="btn" onclick="downloadFile('${docKey}')">📥 下载文件</button>
+                        <button class="btn btn-secondary" onclick="previewFile('${docKey}')">👁️ 预览文件</button>
+                    </div>
+                `;
+            document.getElementById('documentDetails').innerHTML = detailsHtml;
+            document.getElementById('documentModal').style.display = 'block';
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('documentModal').style.display = 'none';
+    }
+
+    // 点击模态框外部关闭
+    window.onclick = function (event) {
+        const modal = document.getElementById('documentModal');
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    // 实际项目中的 API 调用示例
+    async function getCitationInfo(documentId) {
+        try {
+            const response = await fetch(`/api/ai/knowledge/citation/${documentId}`);
+            const citation = await response.json();
+            return citation;
+        } catch (error) {
+            console.error('获取引用信息失败:', error);
+            return null;
+        }
+    }
+
+    // 实际项目中的 RAG 查询示例
+    async function queryWithCitations(question) {
+        try {
+            const response = await fetch('/api/three-stage/stream', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    chatId: 'demo-chat-001',
+                    message: question
+                })
+            });
+
+            // 处理 SSE 流式响应
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
+
+                        try {
+                            const event = JSON.parse(data);
+                            if (event.event === 'message') {
+                                // 处理消息内容
+                                console.log('AI回复:', event.data);
+                            } else if (event.event === 'verification') {
+                                // 处理验证结果
+                                console.log('验证结果:', JSON.parse(event.data));
+                            }
+                        } catch (e) {
+                            // 忽略解析错误
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('查询失败:', error);
+        }
+    }
+</script>
+</body>
+</html>

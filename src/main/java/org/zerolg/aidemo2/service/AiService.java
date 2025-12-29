@@ -190,6 +190,33 @@ public class AiService {
                             .toolNames(availableTools) // 已在构造函数中配置默认工具
                             .stream()
                             .content()
+                            .onErrorResume(throwable -> {
+                                logger.error("DashScope API 调用失败", throwable);
+                                
+                                // 检查具体错误类型
+                                if (throwable.getMessage().contains("400 Bad Request")) {
+                                    logger.error("❌ 400 Bad Request 错误分析:");
+                                    logger.error("   可能原因1: API Key 无效或过期");
+                                    logger.error("   可能原因2: 账户余额不足");
+                                    logger.error("   可能原因3: 模型名称错误 (当前: qwen-turbo)");
+                                    logger.error("   可能原因4: 请求参数格式错误");
+                                    
+                                    // 返回错误提示给用户
+                                    return Flux.just("❌ AI 服务暂时不可用，请检查以下问题：\n" +
+                                            "1. API Key 是否有效\n" +
+                                            "2. 账户余额是否充足\n" +
+                                            "3. 网络连接是否正常\n\n" +
+                                            "请稍后重试或联系管理员。");
+                                } else if (throwable.getMessage().contains("401")) {
+                                    logger.error("❌ 401 Unauthorized: API Key 认证失败");
+                                    return Flux.just("❌ API 认证失败，请检查 API Key 配置。");
+                                } else if (throwable.getMessage().contains("429")) {
+                                    logger.error("❌ 429 Too Many Requests: 请求频率过高");
+                                    return Flux.just("❌ 请求过于频繁，请稍后重试。");
+                                } else {
+                                    return Flux.just("❌ AI 服务出现异常，请稍后重试。错误信息: " + throwable.getMessage());
+                                }
+                            })
                             .map(chunk -> {
                                 fullResponse.append(chunk);
                                 // 包装为 SSE 消息事件
@@ -210,7 +237,7 @@ public class AiService {
                             })
                             // ==================== 8. 发送引用信息 (新增功能) ====================
                             .concatWith(Flux.defer(() -> {
-                                // 构建引用信息
+                                // 构建引用信息 - 回到最简单的工作版本
                                 try {
                                     List<Map<String, Object>> citationsData = finalDocuments.stream()
                                             .map(doc -> {
@@ -218,16 +245,17 @@ public class AiService {
                                                 Map<String, Object> citation = new HashMap<>();
 
                                                 // 基本信息
-                                                citation.put("documentId", metadata.get("source_document_id"));
+                                                String documentId = (String) metadata.get("source_document_id");
+                                                citation.put("documentId", documentId);
                                                 citation.put("filename", metadata.getOrDefault("source_filename", "未知文件"));
                                                 citation.put("location", "第" + ((Integer) metadata.getOrDefault("source_chunk_index", 0) + 1) + "段");
                                                 citation.put("citationNumber", metadata.get("citation_number"));
 
-                                                // 访问链接
-                                                citation.put("downloadUrl", metadata.get("download_url"));
-                                                citation.put("previewUrl", metadata.get("preview_url"));
+                                                // 简化的URL生成 - 与文档库保持完全一致
+                                                citation.put("downloadUrl", "/api/ai/knowledge/download/" + documentId);
+                                                citation.put("previewUrl", "/api/ai/knowledge/preview/" + documentId);
 
-                                                // 文件状态和类型信息
+                                                // 基本文件信息
                                                 citation.put("fileStatus", metadata.getOrDefault("file_status", "未知"));
                                                 citation.put("fileExists", !"纯文本".equals(metadata.get("file_status")));
                                                 citation.put("mimeType", metadata.get("source_mime_type"));
@@ -237,6 +265,8 @@ public class AiService {
                                             .collect(Collectors.toList());
 
                                     String citationsJson = objectMapper.writeValueAsString(citationsData);
+                                    logger.info("发送引用信息: {}", citationsJson);
+                                    
                                     return Flux.just(ServerSentEvent.builder(citationsJson)
                                             .event("citations")
                                             .build());

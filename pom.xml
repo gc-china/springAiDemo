@@ -139,6 +139,12 @@
             <artifactId>tika-parsers-standard-package</artifactId>
             <version>2.9.2</version>
         </dependency>
+
+        <!-- Validation API: 用于参数验证 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
     </dependencies>
 
     <repositories>

@@ -34,6 +34,45 @@ public record ToolExecutionResult(
         return new ToolExecutionResult("pending_confirmation", data, explain);
     }
 
+    /**
+     * 需要确认的结果
+     */
+    public static ToolExecutionResult needsConfirmation(Object data, String explain) {
+        return new ToolExecutionResult("needs_confirmation", data, explain);
+    }
+
+    // 状态检查方法
+    public boolean isSuccess() {
+        return "ok".equals(status);
+    }
+
+    public boolean isError() {
+        return "error".equals(status);
+    }
+
+    public boolean isNotFound() {
+        return "not_found".equals(status);
+    }
+
+    public boolean isAmbiguous() {
+        return "ambiguous".equals(status);
+    }
+
+    public boolean isPending() {
+        return "pending_confirmation".equals(status);
+    }
+
+    public boolean needsConfirmation() {
+        return "needs_confirmation".equals(status);
+    }
+
+    /**
+     * 获取payload数据
+     */
+    public Object getPayload() {
+        return payload;
+    }
+
     // 方便转换为 JSON 字符串返回给 LLM
     public String toJson() {
         try {
