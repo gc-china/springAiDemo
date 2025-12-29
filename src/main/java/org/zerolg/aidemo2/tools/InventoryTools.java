@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
@@ -15,6 +16,7 @@ import org.zerolg.aidemo2.service.stock.EnhancedStockQueryService;
 import org.zerolg.aidemo2.service.stock.EnhancedTransferService;
 
 @Configuration
+@ConditionalOnProperty(name = "tools.inventory.basic.enabled", havingValue = "true", matchIfMissing = false)
 public class InventoryTools {
 
     private static final Logger logger = LoggerFactory.getLogger(InventoryTools.class);

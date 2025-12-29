@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
@@ -22,6 +23,7 @@ import java.util.function.Function;
  * 与LLM Tools完美配合，提供智能参数处理
  */
 @Configuration
+@ConditionalOnProperty(name = "tools.inventory.enhanced.enabled", havingValue = "true", matchIfMissing = false)
 public class EnhancedInventoryTools {
 
     private static final Logger logger = LoggerFactory.getLogger(EnhancedInventoryTools.class);

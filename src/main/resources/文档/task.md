@@ -123,16 +123,17 @@
 ## 阶段三：Agent 智能决策与工具增强
 
 ### 3.1 参数清洗层（Parameter Correction）
-- [x] ParamNormalizer Pipeline（已实现 ArgumentCorrectionAspect）
-  - [x] Normalization（字符串清理）
-  - [x] Entity Resolution（模糊匹配到标准实体）
-  - [x] Validation（类型与范围校验）
-  - [x] Ambiguity Handling（多候选处理）
-- [ ] 工具接口返回约定
-  - [ ] 统一返回结构（ok|ambiguous|not_found|error）
-  - [ ] payload 与 explain 字段
-- [ ] 审计与可回溯
-  - [ ] 参数解析链路保存
+
+✅ParamNormalizer Pipeline（已实现 ArgumentCorrectionAspect）
+✅ Normalization（字符串清理）
+✅ Entity Resolution（模糊匹配到标准实体）
+✅ Validation（类型与范围校验）
+✅ Ambiguity Handling（多候选处理）
+[✅] 工具接口返回约定
+✅ 统一返回结构（ok|ambiguous|not_found|error）
+✅ payload 与 explain 字段
+✅ 审计与可回溯
+✅ 参数解析链路保存
 
 ### 3.2 业务上下文与 Slot Filling
 - [ ] CurrentTask 状态设计
@@ -179,10 +180,6 @@
 - [ ] 鉴权流程（网关层）
   - [ ] API Gateway JWT 校验
   - [ ] userId/tenantId 注入
-- [ ] 多租户策略
-  - [ ] 行级租户隔离
-  - [ ] Schema/DB 级隔离（可选）
-  - [ ] tenant_id 过滤
 - [ ] 最小权限原则
   - [ ] RBAC/ABAC 实现
   - [ ] tool 调用权限校验

@@ -69,37 +69,71 @@ public class LLMToolsNormalizer implements ParamNormalizer {
         List<String> corrections = new ArrayList<>();
         String normalized = originalValue.trim();
 
+        logger.info("LLMToolsNormalizer开始处理: paramName={}, originalValue={}", paramName, originalValue);
+
         try {
             // 1. 产品名称处理
             if (PRODUCT_PARAM_PATTERN.matcher(paramName).matches()) {
-                normalized = normalizeProductName(normalized, corrections);
+                try {
+                    logger.debug("开始产品名称标准化: {}", normalized);
+                    normalized = normalizeProductName(normalized, corrections);
+                    logger.debug("产品名称标准化完成: {} -> {}", originalValue, normalized);
+                } catch (Exception e) {
+                    logger.error("产品名称标准化失败: '{}'", normalized, e);
+                    corrections.add("产品名称标准化部分失败: " + e.getMessage());
+                }
             }
 
             // 2. 仓库名称处理
             else if (WAREHOUSE_PARAM_PATTERN.matcher(paramName).matches()) {
-                normalized = normalizeWarehouseName(normalized, corrections);
+                try {
+                    logger.debug("开始仓库名称标准化: {}", normalized);
+                    normalized = normalizeWarehouseName(normalized, corrections);
+                    logger.debug("仓库名称标准化完成: {} -> {}", originalValue, normalized);
+                } catch (Exception e) {
+                    logger.error("仓库名称标准化失败: '{}'", normalized, e);
+                    corrections.add("仓库名称标准化部分失败: " + e.getMessage());
+                }
             }
 
             // 3. 数量处理
             else if (QUANTITY_PARAM_PATTERN.matcher(paramName).matches()) {
-                normalized = normalizeQuantity(normalized, corrections);
+                try {
+                    logger.debug("开始数量标准化: {}", normalized);
+                    normalized = normalizeQuantity(normalized, corrections);
+                    logger.debug("数量标准化完成: {} -> {}", originalValue, normalized);
+                } catch (Exception e) {
+                    logger.error("数量标准化失败: '{}'", normalized, e);
+                    corrections.add("数量标准化部分失败: " + e.getMessage());
+                }
             }
 
             // 4. 通用LLM输出清理
-            normalized = cleanLLMOutput(normalized, corrections);
+            try {
+                logger.debug("开始LLM输出清理: {}", normalized);
+                normalized = cleanLLMOutput(normalized, corrections);
+                logger.debug("LLM输出清理完成: {} -> {}", originalValue, normalized);
+            } catch (Exception e) {
+                logger.error("LLM输出清理失败: '{}'", normalized, e);
+                corrections.add("输出清理部分失败: " + e.getMessage());
+            }
 
+            // 如果没有任何修正，返回无需修正
             if (corrections.isEmpty()) {
+                logger.debug("LLMToolsNormalizer无需修正: {}", originalValue);
                 return CorrectionResult.noCorrection(originalValue);
             }
 
             double confidence = calculateLLMConfidence(originalValue, normalized, corrections);
 
-            logger.debug("LLM参数标准化: '{}' -> '{}', 应用修正: {}", originalValue, normalized, corrections);
+            logger.info("LLM参数标准化完成: '{}' -> '{}', 应用修正: {}, 置信度: {}", 
+                       originalValue, normalized, corrections, confidence);
 
             return CorrectionResult.success(normalized, originalValue, corrections, confidence);
 
         } catch (Exception e) {
-            logger.warn("LLM参数标准化失败: '{}'", originalValue, e);
+            logger.error("LLM参数标准化严重失败: '{}'", originalValue, e);
+            // 返回失败结果，但不阻止整个流程
             return CorrectionResult.failed(originalValue, "LLM参数标准化异常: " + e.getMessage());
         }
     }
@@ -112,12 +146,15 @@ public class LLMToolsNormalizer implements ParamNormalizer {
         }
 
         String paramName = context.parameterName().toLowerCase();
-        return PRODUCT_PARAM_PATTERN.matcher(paramName).matches() ||
+        boolean supported = PRODUCT_PARAM_PATTERN.matcher(paramName).matches() ||
                 WAREHOUSE_PARAM_PATTERN.matcher(paramName).matches() ||
                 QUANTITY_PARAM_PATTERN.matcher(paramName).matches() ||
                 paramName.contains("name") ||
                 paramName.contains("type") ||
                 paramName.contains("category");
+        
+        logger.debug("LLMToolsNormalizer.supports: paramName={}, supported={}", paramName, supported);
+        return supported;
     }
 
     @Override
@@ -131,29 +168,39 @@ public class LLMToolsNormalizer implements ParamNormalizer {
     private String normalizeProductName(String productName, List<String> corrections) {
         String result = productName;
 
-        // 1. 如果已经是标准ID格式，直接返回
-        if (result.startsWith("P-")) {
-            return result;
-        }
-
-        // 2. 移除LLM常见的多余描述
-        String cleaned = result.replaceAll("产品|商品|物品|货物", "").trim();
-        if (!cleaned.equals(result)) {
-            corrections.add("移除产品描述词");
-            result = cleaned;
-        }
-
-        // 3. 处理品牌和型号分离
-        result = normalizeBrandAndModel(result, corrections);
-
-        // 4. 尝试通过搜索服务找到标准ID
-        var searchResults = searchService.fuzzySearch(result);
-        if (!searchResults.isEmpty()) {
-            String bestMatch = searchResults.get(0).id();
-            if (!bestMatch.equals(result)) {
-                corrections.add("产品名称映射到标准ID");
-                result = bestMatch;
+        try {
+            // 1. 如果已经是标准ID格式，直接返回
+            if (result.startsWith("P-")) {
+                return result;
             }
+
+            // 2. 移除LLM常见的多余描述
+            String cleaned = result.replaceAll("产品|商品|物品|货物", "").trim();
+            if (!cleaned.equals(result)) {
+                corrections.add("移除产品描述词");
+                result = cleaned;
+            }
+
+            // 3. 处理品牌和型号分离
+            result = normalizeBrandAndModel(result, corrections);
+
+            // 4. 尝试通过搜索服务找到标准ID
+            try {
+                var searchResults = searchService.fuzzySearch(result);
+                if (!searchResults.isEmpty()) {
+                    String bestMatch = searchResults.get(0).id();
+                    if (!bestMatch.equals(result)) {
+                        corrections.add("产品名称映射到标准ID");
+                        result = bestMatch;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("搜索服务调用失败: '{}'", result, e);
+                corrections.add("搜索服务不可用，跳过ID映射");
+            }
+        } catch (Exception e) {
+            logger.warn("产品名称标准化失败: '{}'", productName, e);
+            // 如果标准化失败，返回原始值，不影响整个流程
         }
 
         return result;
@@ -165,29 +212,33 @@ public class LLMToolsNormalizer implements ParamNormalizer {
     private String normalizeWarehouseName(String warehouseName, List<String> corrections) {
         String result = warehouseName;
 
-        // 1. 移除常见的仓库后缀
-        String cleaned = result.replaceAll("仓库|仓|库房|中心|depot|warehouse", "").trim();
-        if (!cleaned.equals(result)) {
-            corrections.add("移除仓库后缀");
-            result = cleaned;
-        }
+        try {
+            // 1. 移除常见的仓库后缀
+            String cleaned = result.replaceAll("仓库|仓|库房|中心|depot|warehouse", "").trim();
+            if (!cleaned.equals(result)) {
+                corrections.add("移除仓库后缀");
+                result = cleaned;
+            }
 
-        // 2. 标准化地区名称
-        Map<String, String> regionMapping = Map.of(
-                "北京", "BEIJING",
-                "上海", "SHANGHAI",
-                "广州", "GUANGZHOU",
-                "深圳", "SHENZHEN",
-                "华东", "EAST_REGION",
-                "华北", "NORTH_REGION",
-                "华南", "SOUTH_REGION",
-                "华西", "WEST_REGION"
-        );
+            // 2. 标准化地区名称 - 使用HashMap避免Map.of()的限制
+            Map<String, String> regionMapping = new HashMap<>();
+            regionMapping.put("北京", "BEIJING");
+            regionMapping.put("上海", "SHANGHAI");
+            regionMapping.put("广州", "GUANGZHOU");
+            regionMapping.put("深圳", "SHENZHEN");
+            regionMapping.put("华东", "EAST_REGION");
+            regionMapping.put("华北", "NORTH_REGION");
+            regionMapping.put("华南", "SOUTH_REGION");
+            regionMapping.put("华西", "WEST_REGION");
 
-        String standardRegion = regionMapping.get(result);
-        if (standardRegion != null) {
-            corrections.add("标准化地区名称");
-            result = standardRegion;
+            String standardRegion = regionMapping.get(result);
+            if (standardRegion != null) {
+                corrections.add("标准化地区名称");
+                result = standardRegion;
+            }
+        } catch (Exception e) {
+            logger.warn("仓库名称标准化失败: '{}'", warehouseName, e);
+            // 如果标准化失败，返回原始值，不影响整个流程
         }
 
         return result;
@@ -264,20 +315,33 @@ public class LLMToolsNormalizer implements ParamNormalizer {
     private String normalizeBrandAndModel(String input, List<String> corrections) {
         String result = input;
 
-        // 常见品牌标准化
-        Map<String, String> brandMapping = Map.of(
-                "苹果", "Apple",
-                "华为", "Huawei",
-                "小米", "Xiaomi",
-                "三星", "Samsung",
-                "联想", "Lenovo"
-        );
+        try {
+            // 常见品牌标准化 - 使用HashMap避免Map.of()的限制
+            Map<String, String> brandMapping = new HashMap<>();
+            brandMapping.put("苹果", "Apple");
+            brandMapping.put("华为", "Huawei");
+            brandMapping.put("小米", "Xiaomi");
+            brandMapping.put("三星", "Samsung");
+            brandMapping.put("联想", "Lenovo");
+            brandMapping.put("IPHONE", "iPhone");
+            brandMapping.put("iphone", "iPhone");
+            brandMapping.put("Iphone", "iPhone");
+            brandMapping.put("HUAWEI", "Huawei");
+            brandMapping.put("huawei", "Huawei");
+            brandMapping.put("XIAOMI", "Xiaomi");
+            brandMapping.put("xiaomi", "Xiaomi");
+            brandMapping.put("SAMSUNG", "Samsung");
+            brandMapping.put("samsung", "Samsung");
 
-        for (Map.Entry<String, String> entry : brandMapping.entrySet()) {
-            if (result.contains(entry.getKey())) {
-                result = result.replace(entry.getKey(), entry.getValue());
-                corrections.add("标准化品牌名称");
+            for (Map.Entry<String, String> entry : brandMapping.entrySet()) {
+                if (result.contains(entry.getKey())) {
+                    result = result.replace(entry.getKey(), entry.getValue());
+                    corrections.add("标准化品牌名称");
+                }
             }
+        } catch (Exception e) {
+            logger.warn("品牌名称标准化失败: '{}'", input, e);
+            // 如果标准化失败，返回原始值，不影响整个流程
         }
 
         return result;

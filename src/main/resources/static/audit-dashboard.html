@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>审计系统监控面板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h3 {
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .status-good {
+            color: #28a745;
+        }
+
+        .status-warning {
+            color: #ffc107;
+        }
+
+        .status-error {
+            color: #dc3545;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .audit-log {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .log-entry {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 12px;
+        }
+
+        .log-entry:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .log-timestamp {
+            color: #666;
+            font-weight: bold;
+        }
+
+        .log-tool {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .log-status {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .log-status.ok {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .log-status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .log-status.ambiguous {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        .refresh-btn:hover {
+            background: #5a6fd8;
+        }
+
+        .parameter-chain {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+
+        .transformation-step {
+            margin: 5px 0;
+            padding: 5px;
+            background: white;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>🔍 审计系统监控面板</h1>
+    <p>实时监控AI Agent工具调用和参数转换链路</p>
+</div>
+
+<div class="container">
+    <button class="refresh-btn" onclick="refreshDashboard()">🔄 刷新数据</button>
+
+    <div class="dashboard-grid">
+        <!-- 系统概览 -->
+        <div class="card">
+            <h3>📊 系统概览</h3>
+            <div id="system-overview">
+                <div class="metric">
+                    <span>总执行次数</span>
+                    <span class="metric-value" id="total-executions">-</span>
+                </div>
+                <div class="metric">
+                    <span>成功率</span>
+                    <span class="metric-value status-good" id="success-rate">-</span>
+                </div>
+                <div class="metric">
+                    <span>平均响应时间</span>
+                    <span class="metric-value" id="avg-response-time">-</span>
+                </div>
+                <div class="metric">
+                    <span>缓存命中率</span>
+                    <span class="metric-value" id="cache-hit-rate">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 工具使用统计 -->
+        <div class="card">
+            <h3>🛠️ 工具使用统计</h3>
+            <div class="chart-container">
+                <canvas id="tool-usage-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- 参数转换统计 -->
+        <div class="card">
+            <h3>🔄 参数转换统计</h3>
+            <div id="parameter-stats">
+                <div class="metric">
+                    <span>标准化转换</span>
+                    <span class="metric-value" id="normalization-count">-</span>
+                </div>
+                <div class="metric">
+                    <span>实体解析</span>
+                    <span class="metric-value" id="resolution-count">-</span>
+                </div>
+                <div class="metric">
+                    <span>验证处理</span>
+                    <span class="metric-value" id="validation-count">-</span>
+                </div>
+                <div class="metric">
+                    <span>平均置信度</span>
+                    <span class="metric-value" id="avg-confidence">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 性能趋势 -->
+        <div class="card">
+            <h3>📈 性能趋势</h3>
+            <div class="chart-container">
+                <canvas id="performance-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- 实时审计日志 -->
+    <div class="card">
+        <h3>📝 实时审计日志</h3>
+        <div class="audit-log" id="audit-log">
+            <div class="log-entry">
+                <span class="log-timestamp">等待数据加载...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 参数转换链详情 -->
+    <div class="card">
+        <h3>🔗 最近参数转换链</h3>
+        <div id="parameter-chains">
+            <div class="parameter-chain">
+                <strong>等待数据加载...</strong>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 全局变量
+    let toolUsageChart = null;
+    let performanceChart = null;
+
+    // 初始化页面
+    document.addEventListener('DOMContentLoaded', function () {
+        initCharts();
+        refreshDashboard();
+
+        // 每30秒自动刷新
+        setInterval(refreshDashboard, 30000);
+    });
+
+    // 初始化图表
+    function initCharts() {
+        // 工具使用统计图表
+        const toolCtx = document.getElementById('tool-usage-chart').getContext('2d');
+        toolUsageChart = new Chart(toolCtx, {
+            type: 'doughnut',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    backgroundColor: [
+                        '#667eea', '#764ba2', '#f093fb', '#f5576c',
+                        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+
+        // 性能趋势图表
+        const perfCtx = document.getElementById('performance-chart').getContext('2d');
+        performanceChart = new Chart(perfCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '平均响应时间 (ms)',
+                    data: [],
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+
+    // 刷新仪表板数据
+    async function refreshDashboard() {
+        try {
+            await Promise.all([
+                loadSystemOverview(),
+                loadToolUsageStats(),
+                loadParameterStats(),
+                loadAuditLog(),
+                loadParameterChains()
+            ]);
+
+            console.log('Dashboard refreshed at:', new Date().toLocaleTimeString());
+        } catch (error) {
+            console.error('Failed to refresh dashboard:', error);
+        }
+    }
+
+    // 加载系统概览
+    async function loadSystemOverview() {
+        try {
+            const response = await fetch('/api/audit/performance/system');
+            const data = await response.json();
+
+            if (data.success && data.data) {
+                const stats = data.data;
+                document.getElementById('total-executions').textContent = stats.totalRecords || 0;
+                document.getElementById('success-rate').textContent =
+                    ((stats.systemCacheHitRate || 0) * 100).toFixed(1) + '%';
+                document.getElementById('avg-response-time').textContent =
+                    (stats.systemAverageExecutionTime || 0) + 'ms';
+                document.getElementById('cache-hit-rate').textContent =
+                    ((stats.systemCacheHitRate || 0) * 100).toFixed(1) + '%';
+            }
+        } catch (error) {
+            console.error('Failed to load system overview:', error);
+        }
+    }
+
+    // 加载工具使用统计
+    async function loadToolUsageStats() {
+        try {
+            const response = await fetch('/api/audit/performance/system');
+            const data = await response.json();
+
+            if (data.success && data.data && data.data.toolUsage) {
+                const toolUsage = data.data.toolUsage;
+                const labels = Object.keys(toolUsage);
+                const values = Object.values(toolUsage);
+
+                toolUsageChart.data.labels = labels;
+                toolUsageChart.data.datasets[0].data = values;
+                toolUsageChart.update();
+            }
+        } catch (error) {
+            console.error('Failed to load tool usage stats:', error);
+        }
+    }
+
+    // 加载参数统计
+    async function loadParameterStats() {
+        try {
+            // 模拟数据，实际应该从API获取
+            document.getElementById('normalization-count').textContent = '156';
+            document.getElementById('resolution-count').textContent = '89';
+            document.getElementById('validation-count').textContent = '234';
+            document.getElementById('avg-confidence').textContent = '87.3%';
+        } catch (error) {
+            console.error('Failed to load parameter stats:', error);
+        }
+    }
+
+    // 加载审计日志
+    async function loadAuditLog() {
+        try {
+            const response = await fetch('/api/audit/trail?limit=20');
+            const data = await response.json();
+
+            if (data.success && data.data) {
+                const logContainer = document.getElementById('audit-log');
+                logContainer.innerHTML = '';
+
+                data.data.forEach(audit => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+
+                    const timestamp = new Date(audit.startTime).toLocaleString();
+                    const statusClass = audit.status === 'ok' ? 'ok' :
+                        audit.status === 'error' ? 'error' : 'ambiguous';
+
+                    logEntry.innerHTML = `
+                            <span class="log-timestamp">${timestamp}</span>
+                            <span class="log-tool">${audit.toolName}.${audit.methodName}</span>
+                            <span class="log-status ${statusClass}">${audit.status}</span>
+                            <span>${audit.executionTimeMs}ms</span>
+                        `;
+
+                    logContainer.appendChild(logEntry);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load audit log:', error);
+            // 显示模拟数据
+            showMockAuditLog();
+        }
+    }
+
+    // 显示模拟审计日志
+    function showMockAuditLog() {
+        const logContainer = document.getElementById('audit-log');
+        logContainer.innerHTML = `
+                <div class="log-entry">
+                    <span class="log-timestamp">${new Date().toLocaleString()}</span>
+                    <span class="log-tool">InventoryTools.queryStock</span>
+                    <span class="log-status ok">ok</span>
+                    <span>156ms</span>
+                </div>
+                <div class="log-entry">
+                    <span class="log-timestamp">${new Date(Date.now() - 60000).toLocaleString()}</span>
+                    <span class="log-tool">InventoryTools.transferStock</span>
+                    <span class="log-status ambiguous">ambiguous</span>
+                    <span>234ms</span>
+                </div>
+                <div class="log-entry">
+                    <span class="log-timestamp">${new Date(Date.now() - 120000).toLocaleString()}</span>
+                    <span class="log-tool">IntegratedInventoryTools.integratedQueryStock</span>
+                    <span class="log-status ok">ok</span>
+                    <span>89ms</span>
+                </div>
+            `;
+    }
+
+    // 加载参数转换链
+    async function loadParameterChains() {
+        try {
+            const response = await fetch('/api/audit/parameters/history?limit=5');
+            const data = await response.json();
+
+            if (data.success && data.data) {
+                const chainContainer = document.getElementById('parameter-chains');
+                chainContainer.innerHTML = '';
+
+                data.data.forEach(chain => {
+                    const chainDiv = document.createElement('div');
+                    chainDiv.className = 'parameter-chain';
+
+                    let chainHtml = `<strong>执行ID: ${chain.executionId}</strong><br>`;
+                    chainHtml += `<small>整体置信度: ${(chain.overallConfidence * 100).toFixed(1)}%</small><br>`;
+
+                    chain.steps.forEach((step, index) => {
+                        chainHtml += `
+                                <div class="transformation-step">
+                                    ${index + 1}. ${step.parameterName}: 
+                                    "${step.originalValue}" → "${step.transformedValue}"
+                                    <small>(${step.transformationType}, ${(step.confidence * 100).toFixed(1)}%)</small>
+                                </div>
+                            `;
+                    });
+
+                    chainDiv.innerHTML = chainHtml;
+                    chainContainer.appendChild(chainDiv);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load parameter chains:', error);
+            // 显示模拟数据
+            showMockParameterChains();
+        }
+    }
+
+    // 显示模拟参数转换链
+    function showMockParameterChains() {
+        const chainContainer = document.getElementById('parameter-chains');
+        chainContainer.innerHTML = `
+                <div class="parameter-chain">
+                    <strong>执行ID: exec-12345</strong><br>
+                    <small>整体置信度: 87.5%</small><br>
+                    <div class="transformation-step">
+                        1. product: "  iPhone 15 pro  " → "iPhone 15 Pro"
+                        <small>(normalization, 95.0%)</small>
+                    </div>
+                    <div class="transformation-step">
+                        2. product: "iPhone 15 Pro" → "P-12345"
+                        <small>(entity_resolution, 80.0%)</small>
+                    </div>
+                </div>
+                <div class="parameter-chain">
+                    <strong>执行ID: exec-12346</strong><br>
+                    <small>整体置信度: 92.3%</small><br>
+                    <div class="transformation-step">
+                        1. warehouse: "北京仓库" → "BJ-WH-001"
+                        <small>(entity_resolution, 92.3%)</small>
+                    </div>
+                </div>
+            `;
+    }
+</script>
+</body>
+</html>

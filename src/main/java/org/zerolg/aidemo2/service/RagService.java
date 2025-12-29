@@ -146,9 +146,24 @@ public class RagService {
             String filename = (String) metadata.getOrDefault("filename", "未知文件");
             // 修复：统一使用 source_document_id 字段
             String documentId = (String) metadata.get("source_document_id");
-            if (documentId == null) {
+            if (documentId == null || documentId.trim().isEmpty()) {
                 // 兼容旧的 document_id 字段
                 documentId = (String) metadata.get("document_id");
+                if (documentId == null || documentId.trim().isEmpty()) {
+                    // 如果还是没有，尝试从其他字段获取
+                    filename = (String) metadata.getOrDefault("filename", "unknown");
+                    String chunkHash = (String) metadata.get("chunk_hash");
+
+                    if (chunkHash != null && !chunkHash.trim().isEmpty()) {
+                        // 使用chunk_hash作为临时ID（更可靠）
+                        documentId = "chunk_" + chunkHash;
+                    } else {
+                        // 最后的备选方案：基于文件名生成
+                        documentId = "temp_" + Math.abs(filename.hashCode());
+                    }
+
+                    logger.warn("文档缺少source_document_id，生成临时ID: {} (filename: {})", documentId, filename);
+                }
             }
             Integer chunkIndex = (Integer) metadata.get("chunk_index");
             if (chunkIndex == null) {
@@ -164,7 +179,7 @@ public class RagService {
 
             // 标准化文件信息，确保没有 null 值
             metadata.put("source_filename", filename != null ? filename : "未知文件");
-            metadata.put("source_document_id", documentId != null ? documentId : "");
+            metadata.put("source_document_id", documentId); // 现在documentId不会为空了
             metadata.put("source_chunk_index", chunkIndex != null ? chunkIndex : 0);
             metadata.put("source_mime_type", mimeType != null ? mimeType : "text/plain");
 

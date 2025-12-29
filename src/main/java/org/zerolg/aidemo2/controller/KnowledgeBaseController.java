@@ -97,11 +97,23 @@ public class KnowledgeBaseController {
         try {
             logger.info("开始下载文档: documentId={}", documentId);
 
+            // 处理临时ID的情况
+            if (documentId.startsWith("temp_") || documentId.startsWith("chunk_")) {
+                logger.warn("尝试下载临时ID文档: documentId={}", documentId);
+                return ResponseEntity.badRequest()
+                        .header("X-Error-Message", "该文档为临时引用，无法下载原始文件")
+                        .header("X-Error-Code", "TEMP_DOCUMENT")
+                        .build();
+            }
+
             // 1. 查询文档信息
             org.zerolg.aidemo2.entity.Document document = documentMapper.selectById(documentId);
             if (document == null) {
                 logger.warn("文档不存在: documentId={}", documentId);
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.notFound()
+                        .header("X-Error-Message", "文档不存在或已被删除")
+                        .header("X-Error-Code", "DOCUMENT_NOT_FOUND")
+                        .build();
             }
 
             logger.info("找到文档: title={}, filePath={}, source={}",
@@ -173,6 +185,15 @@ public class KnowledgeBaseController {
     public ResponseEntity<Resource> previewDocument(@PathVariable String documentId) {
         try {
             logger.info("开始预览文档: documentId={}", documentId);
+
+            // 处理临时ID的情况
+            if (documentId.startsWith("temp_") || documentId.startsWith("chunk_")) {
+                logger.warn("尝试预览临时ID文档: documentId={}", documentId);
+                return ResponseEntity.badRequest()
+                        .header("X-Error-Message", "该文档为临时引用，无法预览原始文件")
+                        .header("X-Error-Code", "TEMP_DOCUMENT")
+                        .build();
+            }
 
             // 1. 查询文档信息
             org.zerolg.aidemo2.entity.Document document = documentMapper.selectById(documentId);

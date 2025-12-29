@@ -4,11 +4,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import jakarta.annotation.PostConstruct;
 import org.zerolg.aidemo2.model.IngestionStatus;
 import org.zerolg.aidemo2.model.IngestionTask;
 
@@ -27,7 +30,9 @@ public class KnowledgeIngestionService {
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeIngestionService.class);
     private static final String STREAM_KEY = "ingestion:stream";
     private static final String STATUS_KEY_PREFIX = "ingestion:status:";
-    private static final String UPLOAD_DIR = "ragFiles";
+
+    @Value("${file.upload-dir:ragFiles}")
+    private String uploadDir;
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
@@ -39,12 +44,16 @@ public class KnowledgeIngestionService {
                                      ObjectMapper objectMapper) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
+    }
 
+    @PostConstruct
+    private void initUploadDirectory() {
         try {
-            // 确保目录创建在项目工作目录下
-            Files.createDirectories(Paths.get(UPLOAD_DIR).toAbsolutePath());
+            // 确保目录创建在配置指定的路径下
+            Files.createDirectories(Paths.get(uploadDir).toAbsolutePath());
+            logger.info("上传目录已创建: {}", Paths.get(uploadDir).toAbsolutePath());
         } catch (IOException e) {
-            logger.error("无法创建上传目录", e);
+            logger.error("无法创建上传目录: {}", uploadDir, e);
         }
     }
 
@@ -53,8 +62,8 @@ public class KnowledgeIngestionService {
         String originalFilename = file.getOriginalFilename();
         String mimeType = file.getContentType();
 
-        // 1. 保存文件 (✅ 修复：使用绝对路径)
-        Path filePath = Paths.get(UPLOAD_DIR, ingestionId + "_" + originalFilename).toAbsolutePath();
+        // 1. 保存文件 (✅ 修复：使用配置的上传目录)
+        Path filePath = Paths.get(uploadDir, ingestionId + "_" + originalFilename).toAbsolutePath();
         file.transferTo(filePath.toFile());
         logger.info("文件已保存: {}", filePath);
 

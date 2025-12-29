@@ -192,3 +192,70 @@ parameter:
       enable-type-validation: true
       enable-range-validation: true
       enable-constraint-validation: true
+
+# 审计系统配置
+audit:
+  # 是否启用审计功能
+  enabled: true
+  # 审计详细级别: minimal, standard, detailed
+  detail-level: standard
+  # 审计数据保留期间（天）
+  retention-period: P30D
+  # 是否加密敏感数据
+  encrypt-sensitive-data: true
+  # 异步处理线程池大小
+  async-pool-size: 10
+  
+  # 存储配置
+  storage:
+    # 存储类型: memory, redis, database
+    type: database
+    # Redis存储配置（当type=redis时生效）
+    redis:
+      key-prefix: "audit:"
+      ttl-days: 30
+  
+  # 性能监控配置
+  performance:
+    # 是否启用性能监控
+    enabled: true
+    # 执行时间阈值（毫秒）
+    execution-time-threshold: 30000
+    # 参数修正时间阈值（毫秒）
+    parameter-correction-time-threshold: 5000
+    # 参数转换次数阈值
+    parameter-transformations-threshold: 10
+  
+  # 决策上下文配置
+  decision:
+    # 是否启用决策上下文管理
+    enabled: true
+    # 相似度阈值
+    similarity-threshold: 0.7
+    # 决策历史保留数量
+    max-history-size: 1000
+    # 决策建议最小置信度
+    min-suggestion-confidence: 0.5
+  
+  # 参数链记录配置
+  parameter-chain:
+    # 是否启用参数链记录
+    enabled: true
+    # 最大转换步骤数
+    max-transformation-steps: 20
+    # 是否记录详细元数据
+    record-detailed-metadata: true
+  
+  # 安全配置
+  security:
+    # 敏感参数名称模式（正则表达式）
+    sensitive-parameter-patterns:
+      - ".*password.*"
+      - ".*token.*"
+      - ".*secret.*"
+      - ".*key.*"
+      - ".*credential.*"
+    # 是否启用数据完整性检查
+    enable-integrity-check: true
+    # 是否启用访问控制
+    enable-access-control: false

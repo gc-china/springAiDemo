@@ -322,15 +322,15 @@ public class AiService {
                                         .map(result -> {
                                             try {
                                                 String json = objectMapper.writeValueAsString(result);
-                                                // 发送详细验证结果事件
+                                                // 发送验证结果事件
                                                 return ServerSentEvent.builder(json)
-                                                        .event("detailed_verification")
+                                                        .event("verification")
                                                         .build();
                                             } catch (JsonProcessingException e) {
                                                 logger.error("序列化详细验证结果失败", e);
                                                 // 返回默认验证结果
                                                 return ServerSentEvent.<String>builder()
-                                                        .event("detailed_verification")
+                                                        .event("verification")
                                                         .data("{\"passed\":true,\"confidence\":0.85,\"reason\":\"验证异常\"}")
                                                         .build();
                                             }

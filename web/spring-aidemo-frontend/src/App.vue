@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {ref} from 'vue'
 import SystemMonitor from './views/monitor/SystemMonitor.vue'
+import AuditDashboard from './views/monitor/AuditDashboard.vue'
 import ChatView from './views/chat/ChatView.vue'
 import KnowledgeIngestion from './views/knowledge/KnowledgeIngestion.vue'
 
@@ -15,6 +16,7 @@ const currentTab = ref('chat')
       <nav>
         <button :class="{ active: currentTab === 'chat' }" @click="currentTab = 'chat'">AI 对话</button>
         <button :class="{ active: currentTab === 'monitor' }" @click="currentTab = 'monitor'">系统监控</button>
+        <button :class="{ active: currentTab === 'audit' }" @click="currentTab = 'audit'">审计监控</button>
         <button :class="{ active: currentTab === 'knowledge' }" @click="currentTab = 'knowledge'">知识库</button>
       </nav>
     </header>
@@ -22,6 +24,7 @@ const currentTab = ref('chat')
     <!-- 内容区域 -->
     <div class="content">
       <SystemMonitor v-if="currentTab === 'monitor'"/>
+      <AuditDashboard v-if="currentTab === 'audit'"/>
       <ChatView v-if="currentTab === 'chat'" @open-monitor="currentTab = 'monitor'"/>
       <KnowledgeIngestion v-if="currentTab === 'knowledge'"/>
     </div>
