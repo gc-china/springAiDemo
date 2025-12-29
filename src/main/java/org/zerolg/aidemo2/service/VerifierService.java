@@ -14,6 +14,7 @@ import org.zerolg.aidemo2.model.VerificationResult;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -34,10 +35,12 @@ public class VerifierService {
     }
 
     /**
-     * 异步执行验证
+     * 异步执行验证（带超时和错误处理）
      */
     public Mono<VerificationResult> verify(String query, List<Document> documents, String response) {
         return Mono.fromCallable(() -> {
+                    logger.info("开始验证: query={}, documents={}", query, documents.size());
+                    
                     // 1. 准备上下文
                     String contextStr = documents.stream()
                             .map(Document::getFormattedContent)
@@ -45,6 +48,7 @@ public class VerifierService {
 
                     if (contextStr.isEmpty()) {
                         // 无上下文时，默认为非事实性闲聊，跳过验证或标记为通过
+                        logger.info("无相关文档，基于通用知识回答");
                         return new VerificationResult(true, 0.85, "无相关文档，基于通用知识回答", null);
                     }
 
@@ -56,20 +60,77 @@ public class VerifierService {
                             "response", response
                     ));
 
+                    logger.debug("验证提示词构建完成，开始调用 LLM");
+
                     // 3. 调用裁判 (建议 temperature=0)
-                    BeanOutputConverter<VerificationResult> converter = new BeanOutputConverter<>(VerificationResult.class);
-                    String jsonResult = chatClient.prompt().user(prompt).call().content();
-                    VerificationResult result = converter.convert(jsonResult);
+                    String jsonResult = chatClient.prompt()
+                            .user(prompt)
+                            .options(org.springframework.ai.chat.prompt.ChatOptions.builder()
+                                    .temperature(0.0)
+                                    .build())
+                            .call()
+                            .content();
+
+                    logger.debug("LLM 验证响应: {}", jsonResult);
+
+                    // 手动解析 JSON，避免 BeanOutputConverter 的问题
+                    VerificationResult result = parseVerificationResult(jsonResult);
+
+                    if (result == null) {
+                        logger.warn("验证结果解析为空，使用默认结果");
+                        return new VerificationResult(true, 0.85, "验证解析失败，基于通用知识回答", null);
+                    }
+
+                    // 4. 结果后处理
                     if (result.passed() && result.confidence() <= 0.85) {
+                        logger.info("验证通过但置信度较低: confidence={}", result.confidence());
                         return new VerificationResult(true, 0.85, "文档关联度低，基于通用知识回答", null);
                     }
-                    // 4. 解析结果
-                    return converter.convert(jsonResult);
+
+                    logger.info("验证完成: passed={}, confidence={}", result.passed(), result.confidence());
+                    return result;
 
                 }).subscribeOn(Schedulers.boundedElastic())
+                .timeout(Duration.ofSeconds(10)) // 10秒超时
                 .onErrorResume(e -> {
-                    logger.error("验证服务异常", e);
-                    return Mono.just(new VerificationResult(true, 0.85, "知识库中未找到相关文档，基于大模型通用知识回答", null));
+                    if (e instanceof java.util.concurrent.TimeoutException) {
+                        logger.warn("验证服务超时: {}", e.getMessage());
+                        return Mono.just(new VerificationResult(true, 0.85, "验证超时，基于通用知识回答", null));
+                    } else {
+                        logger.error("验证服务异常", e);
+                        return Mono.just(new VerificationResult(true, 0.85, "验证异常，基于通用知识回答", null));
+                    }
                 });
+    }
+
+    /**
+     * 手动解析验证结果 JSON，避免 BeanOutputConverter 的问题
+     */
+    private VerificationResult parseVerificationResult(String jsonResult) {
+        try {
+            // 清理可能的 Markdown 标记
+            String cleanJson = jsonResult.trim();
+            if (cleanJson.startsWith("```json")) {
+                cleanJson = cleanJson.substring(7);
+            }
+            if (cleanJson.endsWith("```")) {
+                cleanJson = cleanJson.substring(0, cleanJson.length() - 3);
+            }
+            cleanJson = cleanJson.trim();
+
+            // 使用 ObjectMapper 解析
+            Map<String, Object> resultMap = objectMapper.readValue(cleanJson, Map.class);
+
+            boolean passed = Boolean.TRUE.equals(resultMap.get("passed"));
+            double confidence = ((Number) resultMap.getOrDefault("confidence", 0.85)).doubleValue();
+            String reason = (String) resultMap.getOrDefault("reason", "验证完成");
+            String correction = (String) resultMap.get("correction");
+
+            return new VerificationResult(passed, confidence, reason, correction);
+
+        } catch (Exception e) {
+            logger.error("解析验证结果失败: {}", jsonResult, e);
+            return new VerificationResult(true, 0.85, "验证解析失败，基于通用知识回答", null);
+        }
     }
 }

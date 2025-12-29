@@ -4,18 +4,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.PromptTemplate;
-import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.zerolg.aidemo2.entity.DocumentChunk;
 import org.zerolg.aidemo2.mapper.DocumentChunkMapper;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,6 +38,7 @@ public class RagService {
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
+    private final ObjectMapper objectMapper;
     // RRF 算法常数 k，工业界通常取 60
     private static final double RRF_K = 60.0;
 
@@ -53,10 +54,11 @@ public class RagService {
     // 新增：注入 Mapper 用于全文检索
     private final DocumentChunkMapper documentChunkMapper;
 
-    public RagService(ChatClient chatClient, VectorStore vectorStore, DocumentChunkMapper documentChunkMapper) {
+    public RagService(ChatClient chatClient, VectorStore vectorStore, DocumentChunkMapper documentChunkMapper, ObjectMapper objectMapper) {
         this.chatClient = chatClient;
         this.vectorStore = vectorStore;
         this.documentChunkMapper = documentChunkMapper;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -253,19 +255,19 @@ public class RagService {
                             "maxIndex", candidates.size() - 1
                     ));
 
-                    // 使用 BeanOutputConverter 处理 JSON 解析
-                    BeanOutputConverter<List<Integer>> converter = new BeanOutputConverter<>(new ParameterizedTypeReference<List<Integer>>() {
-                    });
-
-                    // 调用 LLM 获取评审结果 (阻塞操作)
-                    // 建议：对于 Rerank，temperature 设为 0 以获得最稳定的结果
+                    // 使用手动 JSON 解析替代 BeanOutputConverter
                     String response = chatClient.prompt()
                             .user(rerankPrompt)
+                            .options(org.springframework.ai.chat.prompt.ChatOptions.builder()
+                                    .temperature(0.0)
+                                    .build())
                             .call()
                             .content();
 
-                    // 转换
-                    List<Integer> selectedIndices = converter.convert(response);
+                    logger.debug("重排序 LLM 响应: {}", response);
+
+                    // 手动解析 JSON 数组
+                    List<Integer> selectedIndices = parseRerankResponse(response);
 
                     if (selectedIndices == null) {
                         selectedIndices = new ArrayList<>();
@@ -288,5 +290,51 @@ public class RagService {
                     logger.warn("⚠️ 重排序失败，降级使用 RRF 排序的前 3 个文档: {}", e.getMessage());
                     return Mono.just(documents.stream().limit(3).collect(Collectors.toList()));
                 });
+    }
+
+    /**
+     * 手动解析重排序响应，避免 BeanOutputConverter 的问题
+     */
+    private List<Integer> parseRerankResponse(String response) {
+        try {
+            // 清理可能的 Markdown 标记
+            String cleanResponse = response.trim();
+            if (cleanResponse.startsWith("```json")) {
+                cleanResponse = cleanResponse.substring(7);
+            }
+            if (cleanResponse.startsWith("```")) {
+                cleanResponse = cleanResponse.substring(3);
+            }
+            if (cleanResponse.endsWith("```")) {
+                cleanResponse = cleanResponse.substring(0, cleanResponse.length() - 3);
+            }
+            cleanResponse = cleanResponse.trim();
+
+            // 如果不是以 [ 开头，尝试提取 JSON 数组
+            if (!cleanResponse.startsWith("[")) {
+                int start = cleanResponse.indexOf('[');
+                int end = cleanResponse.lastIndexOf(']');
+                if (start >= 0 && end > start) {
+                    cleanResponse = cleanResponse.substring(start, end + 1);
+                }
+            }
+
+            // 使用 ObjectMapper 解析
+            List<Integer> result = objectMapper.readValue(cleanResponse, new TypeReference<List<Integer>>() {
+            });
+
+            // 验证结果
+            if (result == null) {
+                result = new ArrayList<>();
+            }
+
+            logger.debug("成功解析重排序结果: {}", result);
+            return result;
+
+        } catch (Exception e) {
+            logger.error("解析重排序响应失败: {}", response, e);
+            // 返回前3个索引作为降级策略
+            return List.of(0, 1, 2);
+        }
     }
 }
