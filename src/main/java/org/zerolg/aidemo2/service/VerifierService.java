@@ -40,55 +40,66 @@ public class VerifierService {
     public Mono<VerificationResult> verify(String query, List<Document> documents, String response) {
         return Mono.fromCallable(() -> {
                     logger.info("开始验证: query={}, documents={}", query, documents.size());
-                    
-                    // 1. 准备上下文
-                    String contextStr = documents.stream()
-                            .map(Document::getFormattedContent)
-                            .collect(Collectors.joining("\n---\n"));
 
-                    if (contextStr.isEmpty()) {
-                        // 无上下文时，默认为非事实性闲聊，跳过验证或标记为通过
-                        logger.info("无相关文档，基于通用知识回答");
-                        return new VerificationResult(true, 0.85, "无相关文档，基于通用知识回答", null);
+                    try {
+                        // 1. 准备上下文
+                        String contextStr = documents.stream()
+                                .map(Document::getFormattedContent)
+                                .collect(Collectors.joining("\n---\n"));
+
+                        if (contextStr.isEmpty()) {
+                            // 无上下文时，默认为非事实性闲聊，跳过验证或标记为通过
+                            logger.info("无相关文档，基于通用知识回答");
+                            return new VerificationResult(true, 0.85, "无相关文档，基于通用知识回答", null);
+                        }
+
+                        // 2. 构建 Prompt - 添加变量清理
+                        // 清理可能导致模板解析失败的特殊字符
+                        String cleanContext = cleanStringForTemplate(contextStr);
+                        String cleanQuery = cleanStringForTemplate(query);
+                        String cleanResponse = cleanStringForTemplate(response);
+
+                        PromptTemplate promptTemplate = new PromptTemplate(verifierPromptResource);
+                        String prompt = promptTemplate.render(Map.of(
+                                "context", cleanContext,
+                                "query", cleanQuery,
+                                "response", cleanResponse
+                        ));
+
+                        logger.debug("验证提示词构建完成，开始调用 LLM");
+
+                        // 3. 调用裁判 (建议 temperature=0)
+                        String jsonResult = chatClient.prompt()
+                                .user(prompt)
+                                .options(org.springframework.ai.chat.prompt.ChatOptions.builder()
+                                        .temperature(0.0)
+                                        .build())
+                                .call()
+                                .content();
+
+                        logger.debug("LLM 验证响应: {}", jsonResult);
+
+                        // 手动解析 JSON，避免 BeanOutputConverter 的问题
+                        VerificationResult result = parseVerificationResult(jsonResult);
+
+                        if (result == null) {
+                            logger.warn("验证结果解析为空，使用默认结果");
+                            return new VerificationResult(true, 0.85, "验证解析失败，基于通用知识回答", null);
+                        }
+
+                        // 4. 结果后处理
+                        if (result.passed() && result.confidence() <= 0.85) {
+                            logger.info("验证通过但置信度较低: confidence={}", result.confidence());
+                            return new VerificationResult(true, 0.85, "文档关联度低，基于通用知识回答", null);
+                        }
+
+                        logger.info("验证完成: passed={}, confidence={}", result.passed(), result.confidence());
+                        return result;
+
+                    } catch (Exception e) {
+                        logger.error("验证过程中发生异常", e);
+                        return new VerificationResult(true, 0.85, "验证异常，基于通用知识回答", null);
                     }
-
-                    // 2. 构建 Prompt
-                    PromptTemplate promptTemplate = new PromptTemplate(verifierPromptResource);
-                    String prompt = promptTemplate.render(Map.of(
-                            "context", contextStr,
-                            "query", query,
-                            "response", response
-                    ));
-
-                    logger.debug("验证提示词构建完成，开始调用 LLM");
-
-                    // 3. 调用裁判 (建议 temperature=0)
-                    String jsonResult = chatClient.prompt()
-                            .user(prompt)
-                            .options(org.springframework.ai.chat.prompt.ChatOptions.builder()
-                                    .temperature(0.0)
-                                    .build())
-                            .call()
-                            .content();
-
-                    logger.debug("LLM 验证响应: {}", jsonResult);
-
-                    // 手动解析 JSON，避免 BeanOutputConverter 的问题
-                    VerificationResult result = parseVerificationResult(jsonResult);
-
-                    if (result == null) {
-                        logger.warn("验证结果解析为空，使用默认结果");
-                        return new VerificationResult(true, 0.85, "验证解析失败，基于通用知识回答", null);
-                    }
-
-                    // 4. 结果后处理
-                    if (result.passed() && result.confidence() <= 0.85) {
-                        logger.info("验证通过但置信度较低: confidence={}", result.confidence());
-                        return new VerificationResult(true, 0.85, "文档关联度低，基于通用知识回答", null);
-                    }
-
-                    logger.info("验证完成: passed={}, confidence={}", result.passed(), result.confidence());
-                    return result;
 
                 }).subscribeOn(Schedulers.boundedElastic())
                 .timeout(Duration.ofSeconds(10)) // 10秒超时
@@ -132,5 +143,25 @@ public class VerifierService {
             logger.error("解析验证结果失败: {}", jsonResult, e);
             return new VerificationResult(true, 0.85, "验证解析失败，基于通用知识回答", null);
         }
+    }
+
+    /**
+     * 清理字符串以避免 StringTemplate 解析错误
+     * 采用最保守的清理策略，只处理绝对必要的字符
+     */
+    private String cleanStringForTemplate(String input) {
+        if (input == null) return "";
+
+        return input
+                // 只处理最基本的字符，避免过度清理
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                // 移除可能导致解析问题的控制字符
+                .replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]", "")
+                // 移除可能导致 StringTemplate 解析问题的字符
+                .replace("【", "[")
+                .replace("】", "]")
+                .replace("'", "'")
+                .replace("'", "'");
     }
 }

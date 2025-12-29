@@ -71,10 +71,21 @@ spring:
       chat:
         options:
           model: qwen-max
+          # 增加超时时间到60秒
+          timeout: 60s
       embedding:
         options:
           # 指定使用阿里云通义千问的文本向量化模型
           model: text-embedding-v1
+          # 增加embedding超时时间到30秒
+          timeout: 30s
+    # 优化重试配置
+    retry:
+      max-attempts: 5              # 增加重试次数
+      backoff:
+        initial-interval: 2000ms   # 增加初始重试间隔
+        max-interval: 30000ms      # 增加最大重试间隔
+        multiplier: 2.0
 
 
 # MyBatis Plus 配置
@@ -113,3 +124,25 @@ logging:
 file:
   upload-dir: D:/uploads/ragFiles # Windows 示例路径, 请确保该目录存在
   # upload-dir: /tmp/ragFiles # Linux/macOS 示例路径
+
+# AI 验证服务配置
+ai:
+  verification:
+    # 是否启用详细验证（断言级别分析）
+    enable-detailed-verification: true
+    # 验证超时时间（秒）
+    timeout-seconds: 15
+    # 断言提取超时时间（秒）
+    assertion-extraction-timeout-seconds: 8
+    # 无支持内容处理配置
+    unsupported-handling:
+      # 无支持内容比例阈值（超过此比例触发处理）
+      threshold: 0.4
+      # 处理策略: MARK_WARNING, FILTER_CONTENT, REGENERATE, DOWNGRADE
+      strategy: MARK_WARNING
+      # 是否自动重新生成
+      auto-regenerate: false
+      # 是否显示详细分析
+      show-details: true
+      # 最大重新生成次数
+      max-regeneration-attempts: 2

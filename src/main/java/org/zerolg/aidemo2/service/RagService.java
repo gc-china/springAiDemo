@@ -12,6 +12,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.zerolg.aidemo2.entity.DocumentChunk;
 import org.zerolg.aidemo2.mapper.DocumentChunkMapper;
+import org.zerolg.aidemo2.utils.NetworkUtils;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,22 +75,34 @@ public class RagService {
         // 路一：向量检索 (语义召回)
         Mono<List<Document>> vectorSearch = Mono.fromCallable(() -> {
             logger.debug("🔍 [1/3] 执行向量检索, query: {}", query);
-            SearchRequest searchRequest = SearchRequest.builder()
-                    .query(query)
-                    .topK(ragTopK)
-                    .similarityThreshold(ragSimilarityThreshold)
-                    .build();
-            List<Document> docs = vectorStore.similaritySearch(searchRequest);
-            // 增强元数据
-            return enhanceDocumentsWithSourceInfo(docs, "vector_search");
+            try {
+                SearchRequest searchRequest = SearchRequest.builder()
+                        .query(query)
+                        .topK(ragTopK)
+                        .similarityThreshold(ragSimilarityThreshold)
+                        .build();
+                List<Document> docs = vectorStore.similaritySearch(searchRequest);
+                // 增强元数据
+                return enhanceDocumentsWithSourceInfo(docs, "vector_search");
+            } catch (Exception e) {
+                NetworkUtils.logNetworkException(logger, "向量检索", e);
+                // 返回空列表，不影响整体流程
+                return new ArrayList<Document>();
+            }
         }).subscribeOn(Schedulers.boundedElastic());
 
         // 路二：全文检索 (关键词精确召回)
         Mono<List<Document>> keywordSearch = Mono.fromCallable(() -> {
             logger.debug("🔍 [1/3] 执行全文检索, query: {}", query);
-            List<Document> docs = searchByKeyword(query, ragTopK);
-            // 增强元数据
-            return enhanceDocumentsWithSourceInfo(docs, "keyword_search");
+            try {
+                List<Document> docs = searchByKeyword(query, ragTopK);
+                // 增强元数据
+                return enhanceDocumentsWithSourceInfo(docs, "keyword_search");
+            } catch (Exception e) {
+                logger.warn("全文检索失败: {}", e.getMessage());
+                // 返回空列表，不影响整体流程
+                return new ArrayList<Document>();
+            }
         }).subscribeOn(Schedulers.boundedElastic());
 
         // 2. 合并结果并应用 RRF 算法
@@ -105,6 +118,17 @@ public class RagService {
                     // 3. LLM 重排序 (Re-ranking) - 专家评审
                     return rerankDocuments(query, fusedDocs);
                 })
+                .onErrorResume(e -> {
+                    logger.error("检索和重排序过程中发生异常，使用降级策略", e);
+                    // 降级策略：返回基于关键词搜索的结果
+                    try {
+                        List<Document> fallbackDocs = searchByKeyword(query, Math.min(ragTopK, 3));
+                        return Mono.just(enhanceDocumentsWithSourceInfo(fallbackDocs, "fallback_search"));
+                    } catch (Exception fallbackException) {
+                        logger.error("降级策略也失败，返回空结果", fallbackException);
+                        return Mono.just(new ArrayList<Document>());
+                    }
+                })
                 .map(this::addCitationNumbers); // 4. 添加引用编号
     }
 
@@ -118,18 +142,18 @@ public class RagService {
             // 添加搜索类型
             metadata.put("search_type", searchType);
 
-            // 确保文件信息完整
+            // 确保文件信息完整，避免 null 值
             String filename = (String) metadata.getOrDefault("filename", "未知文件");
             String documentId = (String) metadata.get("document_id");
             Integer chunkIndex = (Integer) metadata.get("chunk_index");
             String mimeType = (String) metadata.get("mime_type");
             String source = (String) metadata.get("source");
 
-            // 标准化文件信息
-            metadata.put("source_filename", filename);
-            metadata.put("source_document_id", documentId);
+            // 标准化文件信息，确保没有 null 值
+            metadata.put("source_filename", filename != null ? filename : "未知文件");
+            metadata.put("source_document_id", documentId != null ? documentId : "");
             metadata.put("source_chunk_index", chunkIndex != null ? chunkIndex : 0);
-            metadata.put("source_mime_type", mimeType);
+            metadata.put("source_mime_type", mimeType != null ? mimeType : "text/plain");
 
             // 判断文件状态
             String fileStatus = "无文件";
@@ -140,10 +164,13 @@ public class RagService {
             }
             metadata.put("file_status", fileStatus);
 
-            // 生成文件访问 URL
-            if (documentId != null) {
+            // 生成文件访问 URL，避免 null 值
+            if (documentId != null && !documentId.isEmpty()) {
                 metadata.put("download_url", "/api/ai/knowledge/download/" + documentId);
                 metadata.put("preview_url", "/api/ai/knowledge/preview/" + documentId);
+            } else {
+                metadata.put("download_url", "");
+                metadata.put("preview_url", "");
             }
 
             return new Document(doc.getId(), doc.getFormattedContent(), metadata);
@@ -244,16 +271,24 @@ public class RagService {
                     StringBuilder docsBuilder = new StringBuilder();
                     for (int i = 0; i < candidates.size(); i++) {
                         // 使用 formattedContent 包含元数据信息，有助于 LLM 判断
-                        docsBuilder.append("[").append(i).append("] ").append(candidates.get(i).getFormattedContent()).append("\n");
+                        String content = candidates.get(i).getFormattedContent();
+                        // 清理可能导致模板解析失败的特殊字符
+                        String cleanContent = content.replace("$", "\\$").replace("<", "&lt;").replace(">", "&gt;");
+                        docsBuilder.append("[").append(i).append("] ").append(cleanContent).append("\n");
                     }
+
+                    // 清理查询字符串
+                    String cleanQuery = query.replace("$", "\\$").replace("<", "&lt;").replace(">", "&gt;");
 
                     // 加载 Prompt 模板
                     PromptTemplate promptTemplate = new PromptTemplate(rerankPromptResource);
                     String rerankPrompt = promptTemplate.render(Map.of(
-                            "query", query,
+                            "query", cleanQuery,
                             "documents", docsBuilder.toString(),
                             "maxIndex", candidates.size() - 1
                     ));
+
+                    logger.debug("重排序 Prompt: {}", rerankPrompt);
 
                     // 使用手动 JSON 解析替代 BeanOutputConverter
                     String response = chatClient.prompt()
@@ -297,6 +332,8 @@ public class RagService {
      */
     private List<Integer> parseRerankResponse(String response) {
         try {
+            logger.debug("原始重排序响应: {}", response);
+            
             // 清理可能的 Markdown 标记
             String cleanResponse = response.trim();
             if (cleanResponse.startsWith("```json")) {
@@ -310,22 +347,35 @@ public class RagService {
             }
             cleanResponse = cleanResponse.trim();
 
+            // 检查是否包含中文提示（说明模板变量没有正确替换）
+            if (cleanResponse.contains("请提供具体的用户问题") || cleanResponse.contains("候选文档列表")) {
+                logger.warn("重排序响应包含模板提示，可能是变量替换失败: {}", cleanResponse);
+                return List.of(0, 1, 2); // 返回默认索引
+            }
+            
             // 如果不是以 [ 开头，尝试提取 JSON 数组
             if (!cleanResponse.startsWith("[")) {
                 int start = cleanResponse.indexOf('[');
                 int end = cleanResponse.lastIndexOf(']');
                 if (start >= 0 && end > start) {
                     cleanResponse = cleanResponse.substring(start, end + 1);
+                } else {
+                    // 没找到 JSON 数组，返回默认值
+                    logger.warn("重排序响应中未找到 JSON 数组: {}", cleanResponse);
+                    return List.of(0, 1, 2);
                 }
             }
 
+            logger.debug("清理后的重排序响应: {}", cleanResponse);
+            
             // 使用 ObjectMapper 解析
             List<Integer> result = objectMapper.readValue(cleanResponse, new TypeReference<List<Integer>>() {
             });
 
             // 验证结果
-            if (result == null) {
-                result = new ArrayList<>();
+            if (result == null || result.isEmpty()) {
+                logger.warn("重排序结果为空，使用默认索引");
+                return List.of(0, 1, 2);
             }
 
             logger.debug("成功解析重排序结果: {}", result);

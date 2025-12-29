@@ -1,5 +1,6 @@
 package org.zerolg.aidemo2.service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.concurrent.Semaphore;
 
 /**
  * AI 服务
@@ -54,9 +56,13 @@ public class AiService {
     private final RagService ragService;
     private final SessionMemoryService sessionMemoryService;
     private final SessionProperties sessionProperties;
-    private final VerifierService verifierService; // 新增：幻觉验证服务
+    private final VerifierService verifierService; // 简单验证服务
+    private final DetailedVerifierService detailedVerifierService; // 详细验证服务
     private final ObjectMapper objectMapper;
     private final String[] availableTools;
+
+    // 添加API并发控制
+    private final Semaphore apiSemaphore = new Semaphore(3); // 限制同时最多3个API调用
     @Value("classpath:/static/rag-enhanced-prompt.st")
     private Resource ragEnhancedPromptResource;
 
@@ -79,6 +85,7 @@ public class AiService {
             RagService ragService,
             SessionMemoryService sessionMemoryService,
             VerifierService verifierService,
+            DetailedVerifierService detailedVerifierService,
             SessionProperties sessionProperties,
             ObjectMapper objectMapper,
             List<String> availableToolNames) {
@@ -90,6 +97,7 @@ public class AiService {
         this.sessionMemoryService = sessionMemoryService;
         this.sessionProperties = sessionProperties;
         this.verifierService = verifierService;
+        this.detailedVerifierService = detailedVerifierService;
         this.objectMapper = objectMapper;
 
         logger.info("AiService 初始化完成, 加载工具: {}", availableToolNames);
@@ -158,11 +166,15 @@ public class AiService {
                     }
                     String ragContext = contextBuilder.toString().trim();
 
+                    logger.debug("检索到的文档数量: {}", finalDocuments.size());
+                    logger.debug("构建的RAG上下文: {}", ragContext);
 
                     PromptTemplate systemPromptTemplate = new PromptTemplate(ragEnhancedPromptResource);
                     String systemText = systemPromptTemplate.render(Map.of(
                             "context", ragContext.isEmpty() ? "暂无相关背景知识。" : ragContext
                     ));
+
+                    logger.debug("最终系统提示词: {}", systemText);
 
                     List<Message> messages = historyMessages.stream()
                             .map(this::convertToSpringAiMessage)
@@ -233,33 +245,62 @@ public class AiService {
                                     return Flux.empty();
                                 }
                             }))
-                            // ==================== 9. 幻觉验证 (同步但有超时保护) ====================
+                            // ==================== 9. 幻觉验证 (详细验证) ====================
                             .concatWith(Flux.defer(() -> {
-                                // 流结束后，触发验证（带超时保护）
-                                logger.debug("开始执行幻觉验证...");
-                                return verifierService.verify(msg, finalDocuments, fullResponse.toString())
-                                        .timeout(Duration.ofSeconds(12)) // 12秒超时
-                                        .doOnSuccess(result -> logger.info("验证完成: passed={}, confidence={}", result.passed(), result.confidence()))
+                                // 流结束后，触发详细验证（带超时保护和并发控制）
+                                logger.debug("开始执行详细幻觉验证...");
+
+                                return Mono.fromCallable(() -> {
+                                            try {
+                                                apiSemaphore.acquire();
+                                                return "acquired";
+                                            } catch (InterruptedException e) {
+                                                Thread.currentThread().interrupt();
+                                                throw new RuntimeException("API并发控制被中断", e);
+                                            }
+                                        })
+                                        .flatMap(acquired ->
+                                                        detailedVerifierService.verifyDetailed(msg, finalDocuments, fullResponse.toString())
+                                                                .timeout(Duration.ofSeconds(20)) // 增加超时时间到20秒
+                                                                .doOnSuccess(result -> logger.info("详细验证完成: passed={}, confidence={}, assertions={}",
+                                                                        result.passed(), result.confidence(), result.assertions().size()))
                                         .onErrorResume(throwable -> {
                                             if (throwable instanceof java.util.concurrent.TimeoutException) {
-                                                logger.warn("验证服务超时，使用默认结果");
+                                                logger.warn("详细验证服务超时，降级到简单验证");
                                             } else {
-                                                logger.error("验证服务异常，使用默认结果", throwable);
+                                                logger.error("详细验证服务异常，降级到简单验证", throwable);
                                             }
-                                            return Mono.just(new VerificationResult(true, 0.85, "验证超时或异常，基于通用知识回答", null));
+                                            // 降级到简单验证
+                                            return verifierService.verify(msg, finalDocuments, fullResponse.toString())
+                                                    .timeout(Duration.ofSeconds(10))
+                                                    .map(simpleResult -> new org.zerolg.aidemo2.model.DetailedVerificationResult(
+                                                            simpleResult.passed(),
+                                                            simpleResult.confidence(),
+                                                            simpleResult.reason(),
+                                                            simpleResult.correction(),
+                                                            new ArrayList<>(),
+                                                            org.zerolg.aidemo2.model.UnsupportedHandlingResult.downgrade(fullResponse.toString())
+                                                    ))
+                                                    .onErrorReturn(new org.zerolg.aidemo2.model.DetailedVerificationResult(
+                                                            true, 0.85, "验证异常，基于通用知识回答", null,
+                                                            new ArrayList<>(),
+                                                            org.zerolg.aidemo2.model.UnsupportedHandlingResult.downgrade(fullResponse.toString())
+                                                    ));
                                         })
+                                        )
+                                        .doFinally(signalType -> apiSemaphore.release()) // 释放API并发许可
                                         .map(result -> {
                                             try {
                                                 String json = objectMapper.writeValueAsString(result);
-                                                // 发送验证结果事件
+                                                // 发送详细验证结果事件
                                                 return ServerSentEvent.builder(json)
-                                                        .event("verification")
+                                                        .event("detailed_verification")
                                                         .build();
                                             } catch (JsonProcessingException e) {
-                                                logger.error("序列化验证结果失败", e);
+                                                logger.error("序列化详细验证结果失败", e);
                                                 // 返回默认验证结果
                                                 return ServerSentEvent.<String>builder()
-                                                        .event("verification")
+                                                        .event("detailed_verification")
                                                         .data("{\"passed\":true,\"confidence\":0.85,\"reason\":\"验证异常\"}")
                                                         .build();
                                             }
