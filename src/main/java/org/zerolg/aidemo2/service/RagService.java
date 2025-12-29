@@ -144,9 +144,22 @@ public class RagService {
 
             // 确保文件信息完整，避免 null 值
             String filename = (String) metadata.getOrDefault("filename", "未知文件");
-            String documentId = (String) metadata.get("document_id");
+            // 修复：统一使用 source_document_id 字段
+            String documentId = (String) metadata.get("source_document_id");
+            if (documentId == null) {
+                // 兼容旧的 document_id 字段
+                documentId = (String) metadata.get("document_id");
+            }
             Integer chunkIndex = (Integer) metadata.get("chunk_index");
+            if (chunkIndex == null) {
+                // 兼容 source_chunk_index 字段
+                chunkIndex = (Integer) metadata.get("source_chunk_index");
+            }
             String mimeType = (String) metadata.get("mime_type");
+            if (mimeType == null) {
+                // 兼容 source_mime_type 字段
+                mimeType = (String) metadata.get("source_mime_type");
+            }
             String source = (String) metadata.get("source");
 
             // 标准化文件信息，确保没有 null 值
