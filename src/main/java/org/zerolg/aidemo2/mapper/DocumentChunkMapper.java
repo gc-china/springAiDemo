@@ -29,10 +29,11 @@ public interface DocumentChunkMapper extends BaseMapper<DocumentChunk> {
 
     /**
      * 关键词全文检索 (基于 ILIKE 模糊匹配)
+     * 使用 PostgreSQL 字符串连接操作符避免类型推断问题
      *
      * @param query 查询关键词
      * @param limit 返回条数限制
      */
-    @Select("SELECT * FROM document_chunk WHERE content ILIKE CONCAT('%', #{query}, '%') LIMIT #{limit}")
+    @Select("SELECT * FROM document_chunk WHERE content ILIKE ('%' || #{query} || '%') LIMIT #{limit}")
     List<DocumentChunk> searchByKeyword(@Param("query") String query, @Param("limit") int limit);
 }

@@ -7,7 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.Map;
 
 /**
@@ -39,7 +39,7 @@ public class DocumentChunk {
 
     private Integer tokenCount;
 
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     // 存储额外元数据
     @TableField(typeHandler = JacksonTypeHandler.class)

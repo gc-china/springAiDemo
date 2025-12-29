@@ -33,3 +33,6 @@ build/
 
 ### VS Code ###
 .vscode/
+/web/spring-aidemo-frontend/node_modules/
+/pgdata/
+/pgdata/

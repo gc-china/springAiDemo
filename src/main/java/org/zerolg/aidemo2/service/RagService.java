@@ -61,9 +61,10 @@ public class RagService {
 
     /**
      * 执行混合检索并重排序 (Hybrid Retrieve and Rerank)
+     * 增强版：添加引用来源编号和文件信息
      *
      * @param query 用户查询
-     * @return 精选后的文档列表
+     * @return 精选后的文档列表（带引用编号）
      */
     public Mono<List<Document>> retrieveAndRerank(String query) {
         // 1. 并行执行双路召回 (Vector + Keyword)
@@ -76,13 +77,17 @@ public class RagService {
                     .topK(ragTopK)
                     .similarityThreshold(ragSimilarityThreshold)
                     .build();
-            return vectorStore.similaritySearch(searchRequest);
+            List<Document> docs = vectorStore.similaritySearch(searchRequest);
+            // 增强元数据
+            return enhanceDocumentsWithSourceInfo(docs, "vector_search");
         }).subscribeOn(Schedulers.boundedElastic());
 
         // 路二：全文检索 (关键词精确召回)
         Mono<List<Document>> keywordSearch = Mono.fromCallable(() -> {
             logger.debug("🔍 [1/3] 执行全文检索, query: {}", query);
-            return searchByKeyword(query, ragTopK);
+            List<Document> docs = searchByKeyword(query, ragTopK);
+            // 增强元数据
+            return enhanceDocumentsWithSourceInfo(docs, "keyword_search");
         }).subscribeOn(Schedulers.boundedElastic());
 
         // 2. 合并结果并应用 RRF 算法
@@ -97,7 +102,70 @@ public class RagService {
                     logger.debug("🤝 [2/3] RRF 融合完成，保留 Top {} 个候选文档，开始重排序...", fusedDocs.size());
                     // 3. LLM 重排序 (Re-ranking) - 专家评审
                     return rerankDocuments(query, fusedDocs);
-                });
+                })
+                .map(this::addCitationNumbers); // 4. 添加引用编号
+    }
+
+    /**
+     * 增强文档元数据，添加文件来源信息
+     */
+    private List<Document> enhanceDocumentsWithSourceInfo(List<Document> documents, String searchType) {
+        return documents.stream().map(doc -> {
+            Map<String, Object> metadata = new HashMap<>(doc.getMetadata());
+
+            // 添加搜索类型
+            metadata.put("search_type", searchType);
+
+            // 确保文件信息完整
+            String filename = (String) metadata.getOrDefault("filename", "未知文件");
+            String documentId = (String) metadata.get("document_id");
+            Integer chunkIndex = (Integer) metadata.get("chunk_index");
+            String mimeType = (String) metadata.get("mime_type");
+            String source = (String) metadata.get("source");
+
+            // 标准化文件信息
+            metadata.put("source_filename", filename);
+            metadata.put("source_document_id", documentId);
+            metadata.put("source_chunk_index", chunkIndex != null ? chunkIndex : 0);
+            metadata.put("source_mime_type", mimeType);
+
+            // 判断文件状态
+            String fileStatus = "无文件";
+            if ("manual_ingest".equals(source)) {
+                fileStatus = "纯文本";
+            } else if ("file_upload".equals(source)) {
+                fileStatus = "文件正常"; // 这里假设文件存在，实际可以进一步检查
+            }
+            metadata.put("file_status", fileStatus);
+
+            // 生成文件访问 URL
+            if (documentId != null) {
+                metadata.put("download_url", "/api/ai/knowledge/download/" + documentId);
+                metadata.put("preview_url", "/api/ai/knowledge/preview/" + documentId);
+            }
+
+            return new Document(doc.getId(), doc.getFormattedContent(), metadata);
+        }).collect(Collectors.toList());
+    }
+
+    /**
+     * 为最终文档添加引用编号
+     */
+    private List<Document> addCitationNumbers(List<Document> documents) {
+        List<Document> result = new ArrayList<>();
+        for (int i = 0; i < documents.size(); i++) {
+            Document doc = documents.get(i);
+            Map<String, Object> metadata = new HashMap<>(doc.getMetadata());
+
+            // 添加引用编号（从1开始）
+            int citationNumber = i + 1;
+            metadata.put("citation_number", citationNumber);
+            metadata.put("citation_id", "ref_" + citationNumber);
+
+            result.add(new Document(doc.getId(), doc.getFormattedContent(), metadata));
+        }
+        logger.info("✅ 已为 {} 个文档添加引用编号", result.size());
+        return result;
     }
 
     /**

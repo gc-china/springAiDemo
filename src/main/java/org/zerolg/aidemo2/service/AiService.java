@@ -1,5 +1,6 @@
 package org.zerolg.aidemo2.service;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -130,22 +131,26 @@ public class AiService {
         return ragService.retrieveAndRerank(msg)
                 .flatMapMany(finalDocuments -> {
 
-                    // ==================== 5. 构建 Prompt (逻辑不变) ====================
-          /*          String ragContext = finalDocuments.stream()
-                            .map(Document::getFormattedContent)
-                            .collect(Collectors.joining("\n\n"));*/
-
+                    // ==================== 5. 构建带引用信息的 Prompt ====================
                     StringBuilder contextBuilder = new StringBuilder();
                     for (int i = 0; i < finalDocuments.size(); i++) {
                         Document doc = finalDocuments.get(i);
-                        // 获取元数据中的文件名，如果不存在则显示"未知来源"
-                        String sourceName = (String) doc.getMetadata().getOrDefault("file_name", "未知来源");
+                        Map<String, Object> metadata = doc.getMetadata();
 
-                        // 格式：[文档 1] (来源: policy.pdf)
-                        // 内容...
-                        contextBuilder.append(String.format("【文档 %d】(来源: %s)\n%s\n\n",
-                                i + 1,
-                                sourceName,
+                        // 获取引用编号
+                        Integer citationNumber = (Integer) metadata.get("citation_number");
+                        if (citationNumber == null) citationNumber = i + 1;
+
+                        // 获取文件信息
+                        String filename = (String) metadata.getOrDefault("source_filename", "未知文件");
+                        Integer chunkIndex = (Integer) metadata.get("source_chunk_index");
+                        String chunkInfo = chunkIndex != null ? "第" + (chunkIndex + 1) + "段" : "未知位置";
+
+                        // 构建引用格式：【文档 1】(来源: policy.pdf, 第2段)
+                        contextBuilder.append(String.format("【文档 %d】(来源: %s, %s)\n%s\n\n",
+                                citationNumber,
+                                filename,
+                                chunkInfo,
                                 doc.getFormattedContent().trim()));
                     }
                     String ragContext = contextBuilder.toString().trim();
@@ -188,8 +193,45 @@ public class AiService {
                                 sessionMemoryService.saveMessage(chatId, assistantMessage);
                                 logger.info("AI 回复已保存: tokens={}", assistantTokens);
                             })
-                            // ==================== 8. 幻觉验证 (新增功能) ====================
-                            .concatWith(Mono.defer(() -> {
+                            // ==================== 8. 发送引用信息 (新增功能) ====================
+                            .concatWith(Flux.defer(() -> {
+                                // 构建引用信息
+                                try {
+                                    List<Map<String, Object>> citationsData = finalDocuments.stream()
+                                            .map(doc -> {
+                                                Map<String, Object> metadata = doc.getMetadata();
+                                                Map<String, Object> citation = new HashMap<>();
+
+                                                // 基本信息
+                                                citation.put("documentId", metadata.get("source_document_id"));
+                                                citation.put("filename", metadata.getOrDefault("source_filename", "未知文件"));
+                                                citation.put("location", "第" + ((Integer) metadata.getOrDefault("source_chunk_index", 0) + 1) + "段");
+                                                citation.put("citationNumber", metadata.get("citation_number"));
+
+                                                // 访问链接
+                                                citation.put("downloadUrl", metadata.get("download_url"));
+                                                citation.put("previewUrl", metadata.get("preview_url"));
+
+                                                // 文件状态和类型信息
+                                                citation.put("fileStatus", metadata.getOrDefault("file_status", "未知"));
+                                                citation.put("fileExists", !"纯文本".equals(metadata.get("file_status")));
+                                                citation.put("mimeType", metadata.get("source_mime_type"));
+
+                                                return citation;
+                                            })
+                                            .collect(Collectors.toList());
+
+                                    String citationsJson = objectMapper.writeValueAsString(citationsData);
+                                    return Flux.just(ServerSentEvent.builder(citationsJson)
+                                            .event("citations")
+                                            .build());
+                                } catch (JsonProcessingException e) {
+                                    logger.error("序列化引用信息失败", e);
+                                    return Flux.empty();
+                                }
+                            }))
+                            // ==================== 9. 幻觉验证 (新增功能) ====================
+                            .concatWith(Flux.defer(() -> {
                                 // 流结束后，触发验证
                                 return verifierService.verify(msg, finalDocuments, fullResponse.toString())
                                         .map(result -> {
@@ -202,7 +244,8 @@ public class AiService {
                                             } catch (JsonProcessingException e) {
                                                 return ServerSentEvent.<String>builder().build();
                                             }
-                                        });
+                                        })
+                                        .flux(); // 将 Mono 转换为 Flux
                             }));
                 });
     }

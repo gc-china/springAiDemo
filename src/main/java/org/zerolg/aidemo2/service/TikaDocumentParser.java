@@ -10,10 +10,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.xml.sax.SAXException;
 import org.zerolg.aidemo2.model.ParsedDocument;
+import org.zerolg.aidemo2.utils.EncodingUtils;
 
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -37,38 +40,66 @@ public class TikaDocumentParser {
      */
     public ParsedDocument parseDocument(String filePath) throws IOException, TikaException, SAXException {
         logger.info("开始解析文档: {}", filePath);
-        
-        // 1. 创建 Tika 解析器 (自动检测文件类型)
+
+        Path path = Paths.get(filePath);
+        String fileName = path.getFileName().toString().toLowerCase();
+
+        // 对于纯文本文件，使用编码检测
+        if (fileName.endsWith(".txt") || fileName.endsWith(".md") || fileName.endsWith(".log")) {
+            logger.info("检测到文本文件，使用编码检测: {}", filePath);
+            try {
+                String content = EncodingUtils.readFileWithCorrectEncoding(path);
+                content = EncodingUtils.cleanContent(content);
+
+                // 构建基本元数据
+                Map<String, Object> metaMap = new HashMap<>();
+                metaMap.put("Content-Type", "text/plain; charset=utf-8");
+                metaMap.put("resourceName", fileName);
+                metaMap.put("Content-Length", String.valueOf(content.length()));
+
+                logger.info("文本文件解析完成: 字符数={}", content.length());
+
+                return ParsedDocument.builder()
+                        .content(content)
+                        .metadata(metaMap)
+                        .build();
+            } catch (Exception e) {
+                logger.warn("编码检测失败，回退到 Tika 解析: {}", e.getMessage());
+                // 继续使用 Tika 解析
+            }
+        }
+
+        // 使用 Tika 解析其他格式或文本文件解析失败时的回退
         AutoDetectParser parser = new AutoDetectParser();
-        
-        // 2. 创建内容处理器 (限制最大字符数，避免 OOM)
-        // -1 表示不限制，生产环境建议设置上限，如 100MB
         BodyContentHandler handler = new BodyContentHandler(-1);
-        
-        // 3. 创建元数据对象 (可选，用于获取文件属性)
         Metadata metadata = new Metadata();
-        
-        // 4. 创建解析上下文
         ParseContext context = new ParseContext();
         
-        // 5. 解析文件
         try (InputStream stream = new FileInputStream(filePath)) {
             parser.parse(stream, handler, metadata, context);
-            
-            // 记录元数据 (可选)
-            logger.debug("文档元数据: 标题={}, 作者={}, 创建时间={}", 
+
+            logger.debug("文档元数据: 标题={}, 作者={}, 创建时间={}, 编码={}", 
                 metadata.get("title"), 
                 metadata.get("creator"),
-                metadata.get("created"));
+                    metadata.get("created"),
+                    metadata.get("Content-Encoding"));
 
-            // 提取元数据到 Map
             Map<String, Object> metaMap = new HashMap<>();
             for (String name : metadata.names()) {
                 metaMap.put(name, metadata.get(name));
             }
 
             String content = handler.toString();
-            logger.info("文档解析完成: 字符数={}", content.length());
+
+            // 清理可能的编码问题
+            content = EncodingUtils.cleanContent(content);
+
+            if (EncodingUtils.containsGarbledText(content)) {
+                logger.warn("检测到可能的编码问题: {}", filePath);
+            }
+
+            logger.info("文档解析完成: 字符数={}, 检测到的MIME类型={}",
+                    content.length(), metadata.get("Content-Type"));
 
             return ParsedDocument.builder()
                     .content(content)

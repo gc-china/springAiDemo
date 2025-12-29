@@ -11,6 +11,7 @@ import org.zerolg.aidemo2.entity.DocumentChunk;
 import org.zerolg.aidemo2.entity.DocumentFile;
 import org.zerolg.aidemo2.mapper.DocumentChunkMapper;
 import org.zerolg.aidemo2.mapper.DocumentFileMapper;
+import org.zerolg.aidemo2.mapper.DocumentMapper;
 import org.zerolg.aidemo2.mapper.VectorStoreMapper;
 import org.zerolg.aidemo2.model.IngestionStatus;
 import org.zerolg.aidemo2.model.ParsedDocument;
@@ -18,6 +19,7 @@ import org.zerolg.aidemo2.support.splitter.SmartTextSplitter;
 import org.zerolg.aidemo2.utils.HashUtils;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -31,6 +33,7 @@ public class KnowledgeBaseService {
 
     private final DocumentFileMapper documentFileMapper;
     private final DocumentChunkMapper documentChunkMapper;
+    private final DocumentMapper documentMapper;
     private final VectorStoreMapper vectorStoreMapper;
     private final TikaDocumentParser tikaDocumentParser;
     private final SmartTextSplitter smartTextSplitter;
@@ -39,6 +42,7 @@ public class KnowledgeBaseService {
 
     public KnowledgeBaseService(DocumentFileMapper documentFileMapper,
                                 DocumentChunkMapper documentChunkMapper,
+                                DocumentMapper documentMapper,
                                 VectorStoreMapper vectorStoreMapper,
                                 TikaDocumentParser tikaDocumentParser,
                                 SmartTextSplitter smartTextSplitter,
@@ -46,6 +50,7 @@ public class KnowledgeBaseService {
                                 KnowledgeIngestionService ingestionService) {
         this.documentFileMapper = documentFileMapper;
         this.documentChunkMapper = documentChunkMapper;
+        this.documentMapper = documentMapper;
         this.vectorStoreMapper = vectorStoreMapper;
         this.tikaDocumentParser = tikaDocumentParser;
         this.smartTextSplitter = smartTextSplitter;
@@ -73,6 +78,9 @@ public class KnowledgeBaseService {
         String text = parsedDoc.getContent();
         metadata.putAll(parsedDoc.getMetadata());
 
+        // 添加文件上传标识
+        metadata.put("source", "file_upload");
+
         if (text == null || text.isBlank()) {
             logger.warn("文档内容为空，任务ID: {}", ingestionId);
             ingestionService.updateStatus(ingestionId, IngestionStatus.FAILED, 0, "文档内容为空");
@@ -84,6 +92,21 @@ public class KnowledgeBaseService {
         List<String> chunks = smartTextSplitter.split(text);
         logger.info("切片完成，生成 {} 个片段", chunks.size());
 
+        // 3.5 先插入 document 记录（满足外键约束）
+        org.zerolg.aidemo2.entity.Document doc = new org.zerolg.aidemo2.entity.Document();
+        doc.setId(ingestionId);
+        doc.setTitle((String) metadata.getOrDefault("filename", "unknown"));
+        doc.setFilePath(filePath);
+        doc.setMimeType((String) metadata.get("mime_type"));
+        doc.setMetadata(metadata);
+        doc.setChunkCount(chunks.size());
+        doc.setTotalTokens(text.length());
+        doc.setCreatedAt(OffsetDateTime.now());
+        doc.setUpdatedAt(OffsetDateTime.now());
+        doc.setIsDeleted(false);
+        documentMapper.insert(doc);
+        logger.info("已创建文档记录: id={}, title={}", ingestionId, doc.getTitle());
+
         // 4. 切片级去重
         ingestionService.updateStatus(ingestionId, IngestionStatus.PROCESSING, 60, "切片完成，正在检查重复项...");
         List<String> chunkHashes = chunks.stream().map(HashUtils::getSha256).toList();
@@ -93,7 +116,7 @@ public class KnowledgeBaseService {
         }
 
         // 5. 双写操作 (写入 document_chunk 和 vector_store)
-        List<Document> newAiDocuments = new ArrayList<>();
+        List<org.springframework.ai.document.Document> newAiDocuments = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             String chunkText = chunks.get(i);
             String chunkHash = chunkHashes.get(i);
@@ -115,19 +138,24 @@ public class KnowledgeBaseService {
             chunk.setContent(chunkText);
             chunk.setChunkIndex(i);
             chunk.setTokenCount(chunkText.length());
-            chunk.setCreatedAt(LocalDateTime.now());
+            chunk.setCreatedAt(OffsetDateTime.now());
             chunk.setMetadata(chunkMetaForDb);
             documentChunkMapper.insert(chunk);
 
-            // 5.2 准备写入向量表
+            // 3.2 准备写入向量表
             Map<String, Object> chunkMetaForVector = new HashMap<>(metadata);
             chunkMetaForVector.put("document_id", ingestionId);
             chunkMetaForVector.put("chunk_index", i);
             chunkMetaForVector.put("chunk_hash", chunkHash);
-            // 也可以加入文件名等信息
+            // 添加文件信息用于引用
             chunkMetaForVector.put("filename", metadata.getOrDefault("filename", "unknown"));
+            chunkMetaForVector.put("source_filename", metadata.getOrDefault("filename", "unknown"));
+            chunkMetaForVector.put("file_path", filePath);
+            chunkMetaForVector.put("source_document_id", ingestionId);
+            chunkMetaForVector.put("source_chunk_index", i);
+            chunkMetaForVector.put("source_mime_type", metadata.get("mime_type"));
 
-            Document aiDoc = new Document(chunkId, chunkText, chunkMetaForVector); // chunkId 已经是 String，无需修改
+            org.springframework.ai.document.Document aiDoc = new org.springframework.ai.document.Document(chunkId, chunkText, chunkMetaForVector);
             newAiDocuments.add(aiDoc);
         }
 
@@ -171,9 +199,29 @@ public class KnowledgeBaseService {
         metadata.put("title", title);
         metadata.put("source", "manual_ingest");
 
+        // 0. 先插入 document 记录（满足外键约束）
+        org.zerolg.aidemo2.entity.Document doc = new org.zerolg.aidemo2.entity.Document();
+        doc.setId(documentId);
+        doc.setTitle(title);
+        doc.setMimeType((String) metadata.get("mime_type"));
+        // 手动摄入的文档不设置文件路径，因为没有对应的物理文件
+        doc.setFilePath(null);
+        doc.setMetadata(metadata);
+        doc.setCreatedAt(OffsetDateTime.now());
+        doc.setUpdatedAt(OffsetDateTime.now());
+        doc.setIsDeleted(false);
+        
         // 1. 智能切片
         List<String> chunks = smartTextSplitter.split(content);
         logger.info("文本切片完成，生成 {} 个片段", chunks.size());
+
+        // 设置切片数量和总 token 数
+        doc.setChunkCount(chunks.size());
+        doc.setTotalTokens(content.length());
+
+        // 插入 document 记录
+        documentMapper.insert(doc);
+        logger.info("已创建文档记录: id={}, title={}", documentId, title);
 
         // 2. 切片级去重
         List<String> chunkHashes = chunks.stream().map(HashUtils::getSha256).toList();
@@ -183,7 +231,7 @@ public class KnowledgeBaseService {
         }
 
         // 3. 双写操作
-        List<Document> newAiDocuments = new ArrayList<>();
+        List<org.springframework.ai.document.Document> newAiDocuments = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             String chunkText = chunks.get(i);
             String chunkHash = chunkHashes.get(i);
@@ -204,7 +252,7 @@ public class KnowledgeBaseService {
             chunk.setContent(chunkText);
             chunk.setChunkIndex(i);
             chunk.setTokenCount(chunkText.length());
-            chunk.setCreatedAt(LocalDateTime.now());
+            chunk.setCreatedAt(OffsetDateTime.now());
             chunk.setMetadata(chunkMeta);
             documentChunkMapper.insert(chunk);
 
@@ -213,8 +261,14 @@ public class KnowledgeBaseService {
             vectorMeta.put("document_id", documentId);
             vectorMeta.put("chunk_index", i);
             vectorMeta.put("chunk_hash", chunkHash);
+            // 添加文件信息用于引用
+            vectorMeta.put("filename", title);
+            vectorMeta.put("source_filename", title);
+            vectorMeta.put("source_document_id", documentId);
+            vectorMeta.put("source_chunk_index", i);
+            vectorMeta.put("source_mime_type", metadata.get("mime_type"));
 
-            newAiDocuments.add(new Document(chunkId, chunkText, vectorMeta));
+            newAiDocuments.add(new org.springframework.ai.document.Document(chunkId, chunkText, vectorMeta));
         }
 
         // 4. 向量入库

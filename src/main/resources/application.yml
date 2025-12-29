@@ -11,6 +11,22 @@ spring:
       # 整个请求最大限制 (默认 10MB)
       max-request-size: 50MB
   
+  # HTTP 编码配置
+  http:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+  
+  # Jackson 时间序列化配置
+  jackson:
+    time-zone: GMT+8
+    date-format: yyyy-MM-dd HH:mm:ss
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      adjust-dates-to-context-time-zone: false
+  
   # Redis 配置：用于会话存储
   data:
     redis:
@@ -72,10 +88,10 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     db-config:
-      # 逻辑删除配置
+      # 逻辑删除配置 - 使用 Boolean 类型
       logic-delete-field: isDeleted # 全局逻辑删除的实体字段名
-      logic-delete-value: 1 # 逻辑已删除值(默认为 1)
-      logic-not-delete-value: 0 # 逻辑未删除值(默认为 0)
+      logic-delete-value: true # 逻辑已删除值
+      logic-not-delete-value: false # 逻辑未删除值
 
 # 会话记忆配置
 session:
