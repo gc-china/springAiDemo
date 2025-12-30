@@ -80,11 +80,12 @@
             <optional>true</optional>
         </dependency>
 
-        <!--      <!-- 本地Ollama AI模型集成（已注释）：可用于本地部署的AI模型 -->
+        <!-- 本地Ollama AI模型集成（已注释）：可用于本地部署的AI模型
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
-        </dependency>-->
+        </dependency>
+        -->
 
         <!-- Spring AI聊天记忆功能：实现对话上下文记忆 -->
         <!-- https://mvnrepository.com/artifact/org.springframework.ai/spring-ai-autoconfigure-model-chat-memory -->

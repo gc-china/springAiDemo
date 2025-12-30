@@ -157,6 +157,11 @@ public class DefaultParameterChainRecorder implements ParameterChainRecorder {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public ParameterChain getParameterChain(String executionId) {
+        return parameterChains.get(executionId);
+    }
+
     private boolean matchesQuery(ParameterChain chain, ParameterQuery query) {
         // 简化的查询匹配逻辑
         if (query.parameterName() != null) {
@@ -205,9 +210,4 @@ public class DefaultParameterChainRecorder implements ParameterChainRecorder {
 
         return patterns;
     }
-}
-
-@Override
-public ParameterChain getParameterChain(String executionId) {
-    return parameterChains.get(executionId);
 }

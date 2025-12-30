@@ -13,6 +13,7 @@ import org.zerolg.aidemo2.audit.entity.*;
 import org.zerolg.aidemo2.audit.mapper.*;
 import org.zerolg.aidemo2.audit.model.*;
 import org.zerolg.aidemo2.audit.service.AuditService;
+import org.zerolg.aidemo2.audit.service.ParameterChainRecorder;
 
 import java.math.BigDecimal;
 import java.time.Instant;
