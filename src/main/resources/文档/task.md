@@ -164,14 +164,15 @@
 ## 阶段四：前端交互与安全认证
 
 ### 4.1 自定义 SSE 协议与思维链展示
-- [ ] SSE 消息类型设计
-  - [ ] type: thinking/content/tool/error/final/progress
-  - [ ] stage、delta、seq、meta 字段
-- [ ] 前端 UX 实现
-  - [ ] 思维链卡片化
-  - [ ] 流式渲染（Markdown）
-  - [ ] 交互控制（取消/快速模式）
-  - [ ] ambiguous 候选按钮
+
+- ✅ SSE 消息类型设计
+  - ✅ type: thinking/content/tool/error/final/progress
+  - ✅stage、delta、seq、meta 字段
+- ✅ 前端 UX 实现
+  - ✅ 思维链卡片化
+  - ✅ 流式渲染（Markdown）
+  - ✅ 交互控制（取消/快速模式）
+  - ✅ ambiguous 候选按钮
 - [ ] SSE 鉴权
   - [ ] 短期 socket token
   - [ ] JWT 签名机制

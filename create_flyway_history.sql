@@ -20,13 +20,31 @@ CREATE TABLE IF NOT EXISTS flyway_schema_history
 -- 创建索引
 CREATE INDEX IF NOT EXISTS flyway_schema_history_s_idx ON flyway_schema_history (success);
 
--- 插入基线记录（表示当前状态为版本0）
+-- 删除可能存在的旧记录
+DELETE
+FROM flyway_schema_history
+WHERE version = '1';
+
+-- 插入版本1的记录，表示审计表已经存在
+-- 使用当前V1__Create_audit_tables.sql的校验和
 INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum,
                                    installed_by, installed_on, execution_time, success)
-VALUES (1, '0', '<< Flyway Baseline >>', 'BASELINE', '<< Flyway Baseline >>',
-        NULL, 'manual', NOW(), 0, true)
-ON CONFLICT (installed_rank) DO NOTHING;
+VALUES (1, '1', 'Create audit tables', 'SQL', 'V1__Create_audit_tables.sql',
+        -619757082, 'manual', NOW(), 0, true)
+ON CONFLICT
+    (installed_rank)
+    DO UPDATE SET
+    version = EXCLUDED.version,
+    description = EXCLUDED.description,
+    type = EXCLUDED.type,
+    script = EXCLUDED.script,
+checksum = EXCLUDED.checksum,
+    installed_by = EXCLUDED.installed_by,
+    installed_on = EXCLUDED.installed_on,
+    execution_time = EXCLUDED.execution_time,
+    success = EXCLUDED.success;
 
 -- 验证创建成功
 SELECT *
-FROM flyway_schema_history;
+FROM flyway_schema_history
+ORDER BY installed_rank;

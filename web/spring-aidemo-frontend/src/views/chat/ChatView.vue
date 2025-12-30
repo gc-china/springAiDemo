@@ -157,20 +157,63 @@
           <div :class="['max-w-[85%] rounded-2xl px-5 py-3 shadow-sm',
                         msg.role === 'user' ? 'bg-gray-100 dark:bg-[#2d2e30] text-gray-900 dark:text-white' : 'bg-transparent text-gray-900 dark:text-gray-100']">
 
-            <!-- Thinking Chain (Collapsible) -->
-            <div v-if="msg.thinking" class="mb-3">
-              <details class="group">
+            <!-- Thinking Chain Cards -->
+            <div v-if="msg.thinking && msg.thinking.length > 0" class="mb-4 space-y-2">
+              <details class="group" open>
                 <summary
-                    class="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors select-none">
+                    class="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors select-none mb-2">
                   <i class="ri-brain-line"></i>
-                  <span>思考过程</span>
+                  <span>思考过程 ({{ msg.thinking.length }})</span>
                   <i class="ri-arrow-down-s-line group-open:rotate-180 transition-transform"></i>
                 </summary>
-                <div
-                    class="mt-2 p-3 bg-gray-50 dark:bg-[#1e1f20] rounded-lg border border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 font-mono whitespace-pre-wrap leading-relaxed">
-                  {{ msg.thinking }}
+                <div class="space-y-2">
+                  <div v-for="(think, idx) in msg.thinking" :key="idx"
+                       class="flex items-start gap-2 p-2 bg-gray-50 dark:bg-[#1e1f20] rounded-lg border border-gray-200 dark:border-gray-800 text-xs">
+                    <i :class="getThinkingIcon(think.stage)" class="text-blue-500 mt-0.5"></i>
+                    <div class="flex-1">
+                      <div class="font-medium text-gray-700 dark:text-gray-300">{{
+                          getThinkingStageLabel(think.stage)
+                        }}
+                      </div>
+                      <div class="text-gray-600 dark:text-gray-400 mt-1">{{ think.content }}</div>
+                    </div>
+                  </div>
                 </div>
               </details>
+            </div>
+
+            <!-- Tool Calls -->
+            <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="mb-4 space-y-2">
+              <div v-for="(call, idx) in msg.toolCalls" :key="idx"
+                   class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 text-xs">
+                <div class="flex items-center gap-2 mb-2">
+                  <i class="ri-tools-line text-blue-600"></i>
+                  <span class="font-medium text-blue-700 dark:text-blue-300">{{ call.toolName }}</span>
+                  <span v-if="call.status === 'calling'" class="text-blue-500 animate-pulse">调用中...</span>
+                  <span v-else-if="call.status === 'completed'" class="text-green-600">✓ 完成</span>
+                </div>
+                <div v-if="call.params" class="text-gray-600 dark:text-gray-400 mb-1">
+                  参数: {{ JSON.stringify(call.params) }}
+                </div>
+                <div v-if="call.result" class="text-gray-700 dark:text-gray-300">
+                  结果: {{ typeof call.result === 'string' ? call.result : JSON.stringify(call.result) }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Ambiguous Selection -->
+            <div v-if="msg.ambiguous"
+                 class="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+              <div class="text-sm font-medium text-yellow-800 dark:text-yellow-300 mb-2">
+                <i class="ri-question-line"></i> {{ msg.ambiguous.message }}
+              </div>
+              <div class="space-y-2">
+                <button v-for="(candidate, idx) in msg.ambiguous.candidates" :key="idx"
+                        class="w-full text-left p-2 bg-white dark:bg-gray-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded border border-yellow-300 dark:border-yellow-700 text-sm transition-colors"
+                        @click="selectCandidate(msg, candidate)">
+                  {{ typeof candidate === 'string' ? candidate : JSON.stringify(candidate) }}
+                </button>
+              </div>
             </div>
 
             <!-- Content -->
@@ -585,6 +628,36 @@ const quickAsk = (msg: string) => {
   sendMessage();
 };
 
+// 获取思维链阶段图标
+const getThinkingIcon = (stage: string) => {
+  const icons: Record<string, string> = {
+    'retrieval': 'ri-search-line',
+    'reasoning': 'ri-lightbulb-line',
+    'tool_call': 'ri-tools-line',
+    'verification': 'ri-shield-check-line'
+  };
+  return icons[stage] || 'ri-information-line';
+};
+
+// 获取思维链阶段标签
+const getThinkingStageLabel = (stage: string) => {
+  const labels: Record<string, string> = {
+    'retrieval': '文档检索',
+    'reasoning': '推理分析',
+    'tool_call': '工具调用',
+    'verification': '结果验证'
+  };
+  return labels[stage] || stage;
+};
+
+// 选择候选项
+const selectCandidate = (msg: any, candidate: any) => {
+  // 这里可以实现重新发送请求的逻辑
+  console.log('选择候选项:', candidate);
+  msg.ambiguous = null; // 清除歧义提示
+  // TODO: 实现重新调用工具的逻辑
+};
+
 // 文件下载
 const downloadFile = async (documentId: string) => {
   try {
@@ -779,12 +852,13 @@ const sendMessage = () => {
   }) - 1;
 
   // 3. 建立连接
-  // 注意：这里使用 /api 前缀，依赖 vite.config.ts 中的 proxy 转发到后端
   const url = `/api/three-stage/stream?chatId=${currentChatId.value}&msg=${encodeURIComponent(msg)}`;
   console.log("发起请求:", url);
   let eventSource: EventSource | null = new EventSource(url);
 
   let isClosed = false;
+  let thinkingCards: any[] = []; // 思维链卡片
+  
   const forceClose = () => {
     if (isClosed) return;
     isClosed = true;
@@ -804,16 +878,137 @@ const sendMessage = () => {
     });
   };
 
+  // 处理思维链消息
+  eventSource.addEventListener('thinking', (e) => {
+    if (isClosed) return;
+    try {
+      const message = JSON.parse(e.data);
+      const aiMsg = currentMessages.value[aiMsgIndex];
+
+      if (!aiMsg.thinking) {
+        aiMsg.thinking = [];
+      }
+
+      aiMsg.thinking.push({
+        stage: message.stage,
+        content: message.delta,
+        seq: message.seq,
+        timestamp: Date.now()
+      });
+
+      console.log('思维链:', message);
+      nextTick(scrollToBottom);
+    } catch (err) {
+      console.error("思维链解析失败", err);
+    }
+  });
+
+  // 处理内容消息
+  eventSource.addEventListener('content', (e) => {
+    if (isClosed) return;
+    try {
+      const message = JSON.parse(e.data);
+      currentMessages.value[aiMsgIndex].content += message.delta;
+      nextTick(scrollToBottom);
+    } catch (err) {
+      // 兼容旧格式
+      currentMessages.value[aiMsgIndex].content += e.data;
+      nextTick(scrollToBottom);
+    }
+  });
+
+  // 兼容旧的message事件
   eventSource.addEventListener('message', (e) => {
     if (isClosed) return;
     currentMessages.value[aiMsgIndex].content += e.data;
     nextTick(scrollToBottom);
   });
 
+  // 处理工具调用
+  eventSource.addEventListener('tool', (e) => {
+    if (isClosed) return;
+    try {
+      const message = JSON.parse(e.data);
+      const aiMsg = currentMessages.value[aiMsgIndex];
+
+      if (!aiMsg.toolCalls) {
+        aiMsg.toolCalls = [];
+      }
+
+      if (message.stage === 'tool_call') {
+        aiMsg.toolCalls.push({
+          toolName: message.meta.toolName,
+          params: message.meta.params,
+          status: 'calling',
+          seq: message.seq
+        });
+      } else if (message.stage === 'tool_result') {
+        const call = aiMsg.toolCalls.find((c: any) => c.toolName === message.meta.toolName);
+        if (call) {
+          call.result = message.meta.result;
+          call.status = 'completed';
+        }
+      }
+
+      console.log('工具调用:', message);
+      nextTick(scrollToBottom);
+    } catch (err) {
+      console.error("工具调用解析失败", err);
+    }
+  });
+
+  // 处理歧义消息
+  eventSource.addEventListener('ambiguous', (e) => {
+    if (isClosed) return;
+    try {
+      const message = JSON.parse(e.data);
+      const aiMsg = currentMessages.value[aiMsgIndex];
+
+      aiMsg.ambiguous = {
+        toolName: message.meta.toolName,
+        candidates: message.meta.candidates,
+        message: message.delta,
+        seq: message.seq
+      };
+
+      console.log('歧义选择:', message);
+      nextTick(scrollToBottom);
+    } catch (err) {
+      console.error("歧义消息解析失败", err);
+    }
+  });
+
+  // 处理引用信息
+  eventSource.addEventListener('citations', (e) => {
+    if (isClosed) return;
+    try {
+      const message = JSON.parse(e.data);
+      const citationsData = message.meta?.citations || JSON.parse(e.data);
+      const aiMsg = currentMessages.value[aiMsgIndex];
+
+      aiMsg.citations = citationsData.map((citation: any) => ({
+        documentId: citation.documentId,
+        filename: citation.filename,
+        location: citation.location,
+        downloadUrl: citation.downloadUrl,
+        previewUrl: citation.previewUrl,
+        fileExists: citation.fileExists,
+        fileStatus: citation.fileStatus,
+        mimeType: citation.mimeType
+      }));
+
+      console.log('收到引用信息:', aiMsg.citations);
+    } catch (err) {
+      console.error("引用信息解析失败", err);
+    }
+  });
+
+  // 处理验证结果
   eventSource.addEventListener('verification', (e) => {
     if (isClosed) return;
     try {
-      const result = JSON.parse(e.data);
+      const message = JSON.parse(e.data);
+      const result = message.meta?.result || JSON.parse(e.data);
       const aiMsg = currentMessages.value[aiMsgIndex];
 
       if (result.passed) {
@@ -832,39 +1027,10 @@ const sendMessage = () => {
 
     } catch (err) {
       console.error("验证结果解析失败", err);
-      // 降级处理：显示默认验证状态
       const aiMsg = currentMessages.value[aiMsgIndex];
       aiMsg.verification = {status: 'info', icon: 'ri-lightbulb-flash-line', text: '通用知识'};
     }
     forceClose();
-  });
-
-  // 新增：处理引用信息事件
-  eventSource.addEventListener('citations', (e) => {
-    if (isClosed) return;
-    try {
-      const citationsData = JSON.parse(e.data);
-      const aiMsg = currentMessages.value[aiMsgIndex];
-
-      // 将后端返回的引用数据转换为前端格式
-      aiMsg.citations = citationsData.map((citation: any) => ({
-        documentId: citation.documentId,
-        filename: citation.filename,
-        location: citation.location,
-        downloadUrl: citation.downloadUrl,
-        previewUrl: citation.previewUrl,
-        fileExists: citation.fileExists,
-        fileStatus: citation.fileStatus,
-        mimeType: citation.mimeType
-      }));
-
-      console.log('收到引用信息:', aiMsg.citations);
-    } catch (err) {
-      console.error("引用信息解析失败", err);
-      // 降级：使用文本解析
-      const aiMsg = currentMessages.value[aiMsgIndex];
-      aiMsg.citations = parseCitations(aiMsg.content);
-    }
   });
 
   eventSource.onerror = (e) => {

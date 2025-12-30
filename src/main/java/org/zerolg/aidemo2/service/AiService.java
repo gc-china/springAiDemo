@@ -1,9 +1,12 @@
 package org.zerolg.aidemo2.service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -22,6 +25,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.zerolg.aidemo2.model.SessionMessage;
+import org.zerolg.aidemo2.model.SseMessage;
 import org.zerolg.aidemo2.model.VerificationResult;
 import org.zerolg.aidemo2.properties.SessionProperties;
 
@@ -114,33 +118,46 @@ public class AiService {
     public Flux<ServerSentEvent<String>> processQuery(String chatId, String msg) {
         logger.info("开始处理查询: chatId={}, msg={}", chatId, msg);
 
-        // ==================== 1. 会话管理 (保留原有逻辑) ====================
+        AtomicInteger seqCounter = new AtomicInteger(0);
+
+        // ==================== 1. 会话管理 ====================
         if (!sessionMemoryService.sessionExists(chatId)) {
             logger.info("会话不存在，创建新会话: chatId={}", chatId);
             sessionMemoryService.createSession(chatId, "default-user");
         }
 
-        // ==================== 2. 保存用户消息 (保留原有逻辑) ====================
+        // ==================== 2. 保存用户消息 ====================
         int userTokens = estimateTokens(msg);
         SessionMessage userMessage = SessionMessage.createUserMessage(msg, userTokens)
                 .withMetadata("userId", "default-user")
                 .withMetadata("source", "web");
 
-        // 关键点：在生成前就保存用户消息
         sessionMemoryService.saveMessage(chatId, userMessage);
         logger.debug("用户消息已保存: messageId={}, tokens={}", userMessage.id(), userTokens);
 
-        // ==================== 3. 获取历史消息 (保留原有逻辑) ====================
+        // ==================== 3. 获取历史消息 ====================
         int maxHistoryTokens = sessionProperties.getMaxPromptTokens() - userTokens - 1000;
         List<SessionMessage> historyMessages = sessionMemoryService.getMessagesByTokenLimit(
                 chatId,
                 maxHistoryTokens
         );
 
-        // ==================== 4. 混合检索 (升级为 Hybrid RAG) ====================
-        // 使用 retrieveAndRerank 替代旧的 retrieve
-        return ragService.retrieveAndRerank(msg)
+        // 发送思维链：开始检索
+        Flux<ServerSentEvent<String>> thinkingStart = Flux.just(
+                buildSseEvent(SseMessage.thinking("retrieval", "正在检索相关文档...", seqCounter.getAndIncrement()))
+        );
+
+        // ==================== 4. 混合检索 ====================
+        return thinkingStart.concatWith(
+                ragService.retrieveAndRerank(msg)
                 .flatMapMany(finalDocuments -> {
+
+                    // 发送检索完成思维链
+                    Flux<ServerSentEvent<String>> retrievalDone = Flux.just(
+                            buildSseEvent(SseMessage.thinking("retrieval",
+                                    String.format("检索完成，找到 %d 个相关文档", finalDocuments.size()),
+                                    seqCounter.getAndIncrement()))
+                    );
 
                     // ==================== 5. 构建带引用信息的 Prompt ====================
                     StringBuilder contextBuilder = new StringBuilder();
@@ -148,16 +165,13 @@ public class AiService {
                         Document doc = finalDocuments.get(i);
                         Map<String, Object> metadata = doc.getMetadata();
 
-                        // 获取引用编号
                         Integer citationNumber = (Integer) metadata.get("citation_number");
                         if (citationNumber == null) citationNumber = i + 1;
 
-                        // 获取文件信息
                         String filename = (String) metadata.getOrDefault("source_filename", "未知文件");
                         Integer chunkIndex = (Integer) metadata.get("source_chunk_index");
                         String chunkInfo = chunkIndex != null ? "第" + (chunkIndex + 1) + "段" : "未知位置";
 
-                        // 构建引用格式：【文档 1】(来源: policy.pdf, 第2段)
                         contextBuilder.append(String.format("【文档 %d】(来源: %s, %s)\n%s\n\n",
                                 citationNumber,
                                 filename,
@@ -167,64 +181,42 @@ public class AiService {
                     String ragContext = contextBuilder.toString().trim();
 
                     logger.debug("检索到的文档数量: {}", finalDocuments.size());
-                    logger.debug("构建的RAG上下文: {}", ragContext);
 
                     PromptTemplate systemPromptTemplate = new PromptTemplate(ragEnhancedPromptResource);
                     String systemText = systemPromptTemplate.render(Map.of(
                             "context", ragContext.isEmpty() ? "暂无相关背景知识。" : ragContext
                     ));
 
-                    logger.debug("最终系统提示词: {}", systemText);
-
                     List<Message> messages = historyMessages.stream()
                             .map(this::convertToSpringAiMessage)
                             .collect(Collectors.toList());
                     messages.add(new UserMessage(msg));
 
+                    // 发送推理开始思维链
+                    Flux<ServerSentEvent<String>> reasoningStart = Flux.just(
+                            buildSseEvent(SseMessage.thinking("reasoning", "正在分析并生成回答...", seqCounter.getAndIncrement()))
+                    );
+
                     // ==================== 6. 调用 LLM & 流式响应 ====================
                     StringBuilder fullResponse = new StringBuilder();
 
-                    return chatClient.prompt()
+                    Flux<ServerSentEvent<String>> contentStream = chatClient.prompt()
                             .system(systemText)
                             .messages(messages)
-                            .toolNames(availableTools) // 已在构造函数中配置默认工具
+                            .toolNames(availableTools)
                             .stream()
                             .content()
                             .onErrorResume(throwable -> {
                                 logger.error("DashScope API 调用失败", throwable);
-                                
-                                // 检查具体错误类型
-                                if (throwable.getMessage().contains("400 Bad Request")) {
-                                    logger.error("❌ 400 Bad Request 错误分析:");
-                                    logger.error("   可能原因1: API Key 无效或过期");
-                                    logger.error("   可能原因2: 账户余额不足");
-                                    logger.error("   可能原因3: 模型名称错误 (当前: qwen-turbo)");
-                                    logger.error("   可能原因4: 请求参数格式错误");
-                                    
-                                    // 返回错误提示给用户
-                                    return Flux.just("❌ AI 服务暂时不可用，请检查以下问题：\n" +
-                                            "1. API Key 是否有效\n" +
-                                            "2. 账户余额是否充足\n" +
-                                            "3. 网络连接是否正常\n\n" +
-                                            "请稍后重试或联系管理员。");
-                                } else if (throwable.getMessage().contains("401")) {
-                                    logger.error("❌ 401 Unauthorized: API Key 认证失败");
-                                    return Flux.just("❌ API 认证失败，请检查 API Key 配置。");
-                                } else if (throwable.getMessage().contains("429")) {
-                                    logger.error("❌ 429 Too Many Requests: 请求频率过高");
-                                    return Flux.just("❌ 请求过于频繁，请稍后重试。");
-                                } else {
-                                    return Flux.just("❌ AI 服务出现异常，请稍后重试。错误信息: " + throwable.getMessage());
-                                }
+                                return Flux.just("❌ AI 服务暂时不可用，请稍后重试。");
                             })
                             .map(chunk -> {
                                 fullResponse.append(chunk);
-                                // 包装为 SSE 消息事件
-                                return ServerSentEvent.builder(chunk)
-                                        .event("message")
-                                        .build();
-                            })
-                            // ==================== 7. 保存 AI 回复 (保留原有逻辑) ====================
+                                return buildSseEvent(SseMessage.content(chunk, seqCounter.getAndIncrement()));
+                            });
+
+                    // ==================== 7. 保存 AI 回复 & 发送引用和验证 ====================
+                    return retrievalDone.concatWith(reasoningStart).concatWith(contentStream)
                             .doOnComplete(() -> {
                                 String response = fullResponse.toString();
                                 int assistantTokens = estimateTokens(response);
@@ -235,27 +227,21 @@ public class AiService {
                                 sessionMemoryService.saveMessage(chatId, assistantMessage);
                                 logger.info("AI 回复已保存: tokens={}", assistantTokens);
                             })
-                            // ==================== 8. 发送引用信息 (新增功能) ====================
+                            // ==================== 8. 发送引用信息 ====================
                             .concatWith(Flux.defer(() -> {
-                                // 构建引用信息 - 回到最简单的工作版本
                                 try {
                                     List<Map<String, Object>> citationsData = finalDocuments.stream()
                                             .map(doc -> {
                                                 Map<String, Object> metadata = doc.getMetadata();
                                                 Map<String, Object> citation = new HashMap<>();
 
-                                                // 基本信息
                                                 String documentId = (String) metadata.get("source_document_id");
                                                 citation.put("documentId", documentId);
                                                 citation.put("filename", metadata.getOrDefault("source_filename", "未知文件"));
                                                 citation.put("location", "第" + ((Integer) metadata.getOrDefault("source_chunk_index", 0) + 1) + "段");
                                                 citation.put("citationNumber", metadata.get("citation_number"));
-
-                                                // 简化的URL生成 - 与文档库保持完全一致
                                                 citation.put("downloadUrl", "/api/ai/knowledge/download/" + documentId);
                                                 citation.put("previewUrl", "/api/ai/knowledge/preview/" + documentId);
-
-                                                // 基本文件信息
                                                 citation.put("fileStatus", metadata.getOrDefault("file_status", "未知"));
                                                 citation.put("fileExists", !"纯文本".equals(metadata.get("file_status")));
                                                 citation.put("mimeType", metadata.get("source_mime_type"));
@@ -264,80 +250,78 @@ public class AiService {
                                             })
                                             .collect(Collectors.toList());
 
-                                    String citationsJson = objectMapper.writeValueAsString(citationsData);
-                                    logger.info("发送引用信息: {}", citationsJson);
-                                    
-                                    return Flux.just(ServerSentEvent.builder(citationsJson)
-                                            .event("citations")
-                                            .build());
-                                } catch (JsonProcessingException e) {
+                                    return Flux.just(buildSseEvent(SseMessage.citations(citationsData, seqCounter.getAndIncrement())));
+                                } catch (Exception e) {
                                     logger.error("序列化引用信息失败", e);
                                     return Flux.empty();
                                 }
                             }))
-                            // ==================== 9. 幻觉验证 (详细验证) ====================
+                            // ==================== 9. 幻觉验证 ====================
                             .concatWith(Flux.defer(() -> {
-                                // 流结束后，触发详细验证（带超时保护和并发控制）
                                 logger.debug("开始执行详细幻觉验证...");
 
-                                return Mono.fromCallable(() -> {
-                                            try {
-                                                apiSemaphore.acquire();
-                                                return "acquired";
-                                            } catch (InterruptedException e) {
-                                                Thread.currentThread().interrupt();
-                                                throw new RuntimeException("API并发控制被中断", e);
-                                            }
-                                        })
-                                        .flatMap(acquired ->
+                                Flux<ServerSentEvent<String>> verificationThinking = Flux.just(
+                                        buildSseEvent(SseMessage.thinking("verification", "正在验证回答准确性...", seqCounter.getAndIncrement()))
+                                );
+
+                                return verificationThinking.concatWith(
+                                        Mono.fromCallable(() -> {
+                                                    try {
+                                                        apiSemaphore.acquire();
+                                                        return "acquired";
+                                                    } catch (InterruptedException e) {
+                                                        Thread.currentThread().interrupt();
+                                                        throw new RuntimeException("API并发控制被中断", e);
+                                                    }
+                                                })
+                                                .flatMap(acquired ->
                                                         detailedVerifierService.verifyDetailed(msg, finalDocuments, fullResponse.toString())
-                                                                .timeout(Duration.ofSeconds(20)) // 增加超时时间到20秒
-                                                                .doOnSuccess(result -> logger.info("详细验证完成: passed={}, confidence={}, assertions={}",
-                                                                        result.passed(), result.confidence(), result.assertions().size()))
-                                        .onErrorResume(throwable -> {
-                                            if (throwable instanceof java.util.concurrent.TimeoutException) {
-                                                logger.warn("详细验证服务超时，降级到简单验证");
-                                            } else {
-                                                logger.error("详细验证服务异常，降级到简单验证", throwable);
-                                            }
-                                            // 降级到简单验证
-                                            return verifierService.verify(msg, finalDocuments, fullResponse.toString())
-                                                    .timeout(Duration.ofSeconds(10))
-                                                    .map(simpleResult -> new org.zerolg.aidemo2.model.DetailedVerificationResult(
-                                                            simpleResult.passed(),
-                                                            simpleResult.confidence(),
-                                                            simpleResult.reason(),
-                                                            simpleResult.correction(),
-                                                            new ArrayList<>(),
-                                                            org.zerolg.aidemo2.model.UnsupportedHandlingResult.downgrade(fullResponse.toString())
-                                                    ))
-                                                    .onErrorReturn(new org.zerolg.aidemo2.model.DetailedVerificationResult(
-                                                            true, 0.85, "验证异常，基于通用知识回答", null,
-                                                            new ArrayList<>(),
-                                                            org.zerolg.aidemo2.model.UnsupportedHandlingResult.downgrade(fullResponse.toString())
-                                                    ));
-                                        })
-                                        )
-                                        .doFinally(signalType -> apiSemaphore.release()) // 释放API并发许可
-                                        .map(result -> {
-                                            try {
-                                                String json = objectMapper.writeValueAsString(result);
-                                                // 发送验证结果事件
-                                                return ServerSentEvent.builder(json)
-                                                        .event("verification")
-                                                        .build();
-                                            } catch (JsonProcessingException e) {
-                                                logger.error("序列化详细验证结果失败", e);
-                                                // 返回默认验证结果
-                                                return ServerSentEvent.<String>builder()
-                                                        .event("verification")
-                                                        .data("{\"passed\":true,\"confidence\":0.85,\"reason\":\"验证异常\"}")
-                                                        .build();
-                                            }
-                                        })
-                                        .flux(); // 将 Mono 转换为 Flux
+                                                                .timeout(Duration.ofSeconds(20))
+                                                                .doOnSuccess(result -> logger.info("详细验证完成: passed={}, confidence={}",
+                                                                        result.passed(), result.confidence()))
+                                                                .onErrorResume(throwable -> {
+                                                                    logger.warn("详细验证失败，降级到简单验证", throwable);
+                                                                    return verifierService.verify(msg, finalDocuments, fullResponse.toString())
+                                                                            .timeout(Duration.ofSeconds(10))
+                                                                            .map(simpleResult -> new org.zerolg.aidemo2.model.DetailedVerificationResult(
+                                                                                    simpleResult.passed(),
+                                                                                    simpleResult.confidence(),
+                                                                                    simpleResult.reason(),
+                                                                                    simpleResult.correction(),
+                                                                                    new ArrayList<>(),
+                                                                                    org.zerolg.aidemo2.model.UnsupportedHandlingResult.downgrade(fullResponse.toString())
+                                                                            ))
+                                                                            .onErrorReturn(new org.zerolg.aidemo2.model.DetailedVerificationResult(
+                                                                                    true, 0.85, "验证异常", null,
+                                                                                    new ArrayList<>(),
+                                                                                    org.zerolg.aidemo2.model.UnsupportedHandlingResult.downgrade(fullResponse.toString())
+                                                                            ));
+                                                                })
+                                                )
+                                                .doFinally(signalType -> apiSemaphore.release())
+                                                .map(result -> buildSseEvent(SseMessage.verification(result, seqCounter.getAndIncrement())))
+                                                .flux()
+                                );
                             }));
-                });
+                })
+        );
+    }
+
+    /**
+     * 构建SSE事件
+     */
+    private ServerSentEvent<String> buildSseEvent(SseMessage message) {
+        try {
+            String json = objectMapper.writeValueAsString(message);
+            return ServerSentEvent.builder(json)
+                    .event(message.type())
+                    .build();
+        } catch (JsonProcessingException e) {
+            logger.error("序列化SSE消息失败", e);
+            return ServerSentEvent.builder("{\"type\":\"error\",\"delta\":\"消息序列化失败\"}")
+                    .event("error")
+                    .build();
+        }
     }
 
     /**
