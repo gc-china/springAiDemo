@@ -206,3 +206,8 @@ public class DefaultParameterChainRecorder implements ParameterChainRecorder {
         return patterns;
     }
 }
+
+@Override
+public ParameterChain getParameterChain(String executionId) {
+    return parameterChains.get(executionId);
+}

@@ -197,6 +197,9 @@ parameter:
 audit:
   # 是否启用审计功能
   enabled: true
+  # 是否启用审计切面（注意：由于Spring AOP限制，推荐使用手动审计）
+  aspect:
+    enabled: false
   # 审计详细级别: minimal, standard, detailed
   detail-level: standard
   # 审计数据保留期间（天）

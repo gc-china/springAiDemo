@@ -23,11 +23,13 @@ import java.util.UUID;
 
 /**
  * 工具执行审计切面
- * 自动为工具方法添加审计功能
+ * 注意：由于Spring AOP无法拦截Function.apply()方法的调用，
+ * 审计功能已移至IntegratedInventoryTools中手动调用。
+ * 此切面暂时禁用。
  */
 @Aspect
 @Component
-@ConditionalOnProperty(name = "audit.enabled", havingValue = "true", matchIfMissing = false)
+@ConditionalOnProperty(name = "audit.aspect.enabled", havingValue = "true", matchIfMissing = false)
 public class ToolExecutionAuditAspect {
 
     private static final Logger logger = LoggerFactory.getLogger(ToolExecutionAuditAspect.class);
@@ -45,10 +47,10 @@ public class ToolExecutionAuditAspect {
     private PerformanceMonitor performanceMonitor;
 
     /**
-     * 拦截所有返回ToolExecutionResult的工具方法
+     * 拦截所有工具方法 - 支持返回String和ToolExecutionResult的方法
      */
     @Around("execution(* org.zerolg.aidemo2.tools.*.*(..)) && " +
-            "(execution(* *(..) throws *) || execution(org.zerolg.aidemo2.common.ToolExecutionResult *(..)))")
+            "@annotation(org.springframework.context.annotation.Description)")
     public Object auditToolExecution(ProceedingJoinPoint joinPoint) throws Throwable {
         String executionId = UUID.randomUUID().toString();
         String traceId = getTraceId();
@@ -93,8 +95,24 @@ public class ToolExecutionAuditAspect {
                 );
 
                 return enhancedResult;
+            } else if (result instanceof String stringResult) {
+                // 处理返回String的工具方法（如IntegratedInventoryTools）
+                logger.info("工具执行完成: toolName={}, methodName={}, executionTime={}ms",
+                        toolName, methodName, executionTime.toMillis());
+
+                // 完成审计 - 假设String结果表示成功
+                auditService.completeExecution(
+                        executionId,
+                        "ok",
+                        stringResult,
+                        null,
+                        originalParams,
+                        executionTime.toMillis()
+                );
+
+                return result; // 直接返回原始String结果
             } else {
-                // 非ToolExecutionResult返回值，创建成功结果
+                // 其他类型的返回值，创建成功结果
                 EnhancedToolExecutionResult enhancedResult = EnhancedToolExecutionResult.success(
                         result,
                         "Method executed successfully"
@@ -130,16 +148,11 @@ public class ToolExecutionAuditAspect {
                     executionTime.toMillis()
             );
 
-            // 返回错误结果
-            EnhancedToolExecutionResult errorResult = EnhancedToolExecutionResult.error(
-                    "Tool execution failed: " + e.getMessage()
-            ).withAuditMetadata(
-                    AuditMetadata.create(executionId, traceId, sessionId, userId, toolName, methodName)
-            ).withMetrics(
-                    PerformanceMetrics.create(executionTime.toMillis())
-            );
+            logger.error("工具执行失败: toolName={}, methodName={}, error={}",
+                    toolName, methodName, e.getMessage(), e);
 
-            return errorResult;
+            // 对于返回String的方法，直接抛出异常
+            throw e;
         }
     }
 

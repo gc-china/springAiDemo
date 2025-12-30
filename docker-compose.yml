@@ -1,50 +1,120 @@
+# Docker Compose配置文件
+# 用于快速搭建AI演示项目的完整开发环境
+# 包含PostgreSQL向量数据库、Redis缓存和可视化管理工具
+
 version: '3.8'
 
 services:
-  # PostgreSQL 16 + PGVector (向量数据库 + 关系型数据库)
+  # ==================== PostgreSQL + PGVector 向量数据库 ====================
+  # 这是项目的核心数据存储组件，提供以下功能：
+  # 1. 关系型数据库：存储用户数据、会话记录、审计日志等结构化数据
+  # 2. 向量数据库：存储文档向量，支持语义搜索和RAG功能
+  # 3. PGVector扩展：提供高性能的向量相似性搜索能力
   pgvector:
+    # 使用官方PGVector镜像，基于PostgreSQL 16
+    # PGVector是PostgreSQL的向量扩展，支持向量存储和相似性搜索
     image: pgvector/pgvector:pg16
     container_name: aidemo-pgvector
     ports:
+      # 映射PostgreSQL默认端口，应用可通过localhost:5432连接
       - "5432:5432"
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=aidemo
+      # 数据库连接配置
+      - POSTGRES_USER=postgres          # 数据库用户名
+      - POSTGRES_PASSWORD=postgres      # 数据库密码（生产环境应使用强密码）
+      - POSTGRES_DB=aidemo             # 默认数据库名称
     volumes:
-      - ./pgdata:/var/lib/postgresql/data
+      # 使用Docker内部卷，不持久化到本地项目目录
+      - pgvector_data:/var/lib/postgresql/data
+      # 初始化脚本：容器首次启动时会执行此目录下的SQL脚本
       - ./init-scripts:/docker-entrypoint-initdb.d
-    restart: always
+    restart: always  # 容器异常退出时自动重启
     networks:
       - aidemo-network
 
-  # Redis 7.0 (会话存储 + Stream 队列)
+  # ==================== Redis 缓存和消息队列 ====================
+  # Redis在项目中承担多重角色：
+  # 1. 会话存储：缓存用户对话历史，提供快速访问
+  # 2. 消息队列：使用Redis Stream实现异步任务处理
+  # 3. 分布式锁：协调多实例间的资源访问
+  # 4. 计数器：统计API调用次数、用户活跃度等
   redis:
+    # 使用Redis 7.0 Alpine版本，体积小、性能好
     image: redis:7.0-alpine
     container_name: aidemo-redis
     ports:
+      # 映射Redis默认端口，应用可通过localhost:6379连接
       - "6379:6379"
+    # 启用AOF持久化：记录每个写操作，确保数据不丢失
+    # AOF (Append Only File) 比RDB更安全，但文件更大
     command: redis-server --appendonly yes
     volumes:
-      - ./redis-data:/data
-    restart: always
+      # 使用Docker内部卷，不持久化到本地项目目录
+      - redis_data:/data
+    restart: always  # 容器异常退出时自动重启
     networks:
       - aidemo-network
 
-  # Redis Commander (可视化管理工具 - 可选)
+  # ==================== Redis Commander 可视化管理工具 ====================
+  # 这是一个可选的Web界面，用于：
+  # 1. 可视化查看Redis中的数据结构
+  # 2. 监控Redis性能指标
+  # 3. 手动执行Redis命令进行调试
+  # 4. 查看会话数据、消息队列状态等
+  # 
+  # 访问地址：http://localhost:8081
+  # 生产环境建议移除此服务或限制访问权限
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: aidemo-redis-commander
     ports:
+      # Web界面端口，避免与应用端口冲突
       - "8081:8081"
     environment:
+      # 连接到同网络下的Redis服务
+      # local是连接名称，redis是服务名，6379是端口
       - REDIS_HOSTS=local:redis:6379
     depends_on:
+      # 确保Redis服务启动后再启动管理界面
       - redis
     restart: always
     networks:
       - aidemo-network
 
+# ==================== 网络配置 ====================
+# 创建自定义网络，让所有服务能够相互通信
+# 使用bridge驱动，这是Docker的默认网络类型
 networks:
   aidemo-network:
     driver: bridge
+
+# ==================== 数据卷配置 ====================
+# 使用Docker管理的内部卷，数据不会持久化到项目目录
+# 容器删除时数据会丢失，适合开发环境
+volumes:
+  pgvector_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ==================== 使用说明 ====================
+# 启动所有服务：docker-compose up -d
+# 查看服务状态：docker-compose ps
+# 查看日志：docker-compose logs [服务名]
+# 停止所有服务：docker-compose down
+# 重建服务：docker-compose up -d --build
+# 
+# 服务访问地址：
+# - PostgreSQL: localhost:5432 (用户名/密码: postgres/postgres)
+# - Redis: localhost:6379
+# - Redis管理界面: http://localhost:8081
+# 
+# 数据存储说明：
+# - 使用Docker内部卷存储数据，不会在项目目录生成数据文件
+# - 容器删除时数据会丢失，适合开发和测试环境
+# - 如需持久化数据，请修改volumes配置使用本地目录映射
+# 
+# 数据卷管理：
+# - 查看数据卷：docker volume ls
+# - 删除数据卷：docker-compose down -v
+# - 清理所有数据：docker-compose down -v --remove-orphans

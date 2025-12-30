@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -43,5 +43,5 @@ public class DecisionContextEntity {
     private Map<String, Object> contextFactors;
 
     @TableField(value = "timestamp", fill = FieldFill.INSERT)
-    private LocalDateTime timestamp;
+    private Instant timestamp;
 }

@@ -333,11 +333,16 @@ public class LLMToolsNormalizer implements ParamNormalizer {
             brandMapping.put("SAMSUNG", "Samsung");
             brandMapping.put("samsung", "Samsung");
 
+            boolean brandCorrected = false;
             for (Map.Entry<String, String> entry : brandMapping.entrySet()) {
                 if (result.contains(entry.getKey())) {
                     result = result.replace(entry.getKey(), entry.getValue());
-                    corrections.add("标准化品牌名称");
+                    brandCorrected = true;
                 }
+            }
+
+            if (brandCorrected) {
+                corrections.add("标准化品牌名称");
             }
         } catch (Exception e) {
             logger.warn("品牌名称标准化失败: '{}'", input, e);

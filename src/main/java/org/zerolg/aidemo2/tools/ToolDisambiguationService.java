@@ -147,14 +147,10 @@ public class ToolDisambiguationService {
         // 基于Bean名称推断源类名
         if (beanName.contains("integrated")) {
             return "org.zerolg.aidemo2.tools.IntegratedInventoryTools";
-        } else if (beanName.contains("audited")) {
-            return "org.zerolg.aidemo2.tools.AuditedInventoryTools";
-        } else if (beanName.contains("smart") || beanName.contains("batch") || beanName.contains("enhanced")) {
-            return "org.zerolg.aidemo2.tools.EnhancedInventoryTools";
-        } else if (beanName.contains("query") || beanName.contains("transfer")) {
-            return "org.zerolg.aidemo2.tools.InventoryTools";
+        } else if (beanName.contains("integrated")) {
+            return "org.zerolg.aidemo2.tools.IntegratedInventoryTools";
         }
-        return "org.zerolg.aidemo2.tools.UnknownTools";
+        return "org.zerolg.aidemo2.tools.IntegratedInventoryTools"; // 默认使用集成工具
     }
 
     private ToolInfo createToolInfo(String beanName, Function<?, ?> function, String sourceClassName) {

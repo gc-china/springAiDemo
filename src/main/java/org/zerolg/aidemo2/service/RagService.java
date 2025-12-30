@@ -1,23 +1,31 @@
+// 包声明：定义当前类所属的包路径
 package org.zerolg.aidemo2.service;
 
+// 导入日志相关类，用于记录系统运行信息
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+// 导入Spring AI框架相关类，用于AI聊天和向量检索
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+// 导入Spring框架注解和资源处理
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+// 导入项目自定义的实体类和工具类
 import org.zerolg.aidemo2.entity.DocumentChunk;
 import org.zerolg.aidemo2.mapper.DocumentChunkMapper;
 import org.zerolg.aidemo2.utils.NetworkUtils;
+// 导入响应式编程相关类
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+// 导入JSON处理相关类
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 
+// 导入Java标准库
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -26,35 +34,66 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * RAG 服务 (商业化增强版)
+ * RAG服务 (检索增强生成服务) - 商业化增强版
+ *
+ * 这是系统的核心AI服务之一，实现了先进的RAG（Retrieval-Augmented Generation）技术
+ * 
  * 核心能力：
- * 1. 混合检索 (Hybrid Search): 向量检索 (语义) + 关键词检索 (精确匹配)
- * 2. RRF 融合 (Reciprocal Rank Fusion): 科学合并两路召回结果
- * 3. LLM 重排序 (Rerank): 使用大模型进行最终的相关性精排
+ * 1. 混合检索 (Hybrid Search): 
+ *    - 向量检索 (语义相似度检索) - 理解用户意图和语义
+ *    - 关键词检索 (精确匹配检索) - 确保重要关键词不被遗漏
+ *
+ * 2. RRF融合 (Reciprocal Rank Fusion): 
+ *    - 科学合并两路召回结果
+ *    - 使用倒数排名融合算法平衡不同检索策略的优势
+ *
+ * 3. LLM重排序 (Rerank): 
+ *    - 使用大语言模型进行最终的相关性精排
+ *    - 基于用户查询对候选文档进行智能排序
+ *
+ * 4. 引用管理:
+ *    - 为检索到的文档添加引用编号
+ *    - 提供文件下载和预览链接
+ *    - 支持多种文件格式的元数据管理
+ *
+ * 技术特点：
+ * - 响应式编程：使用Reactor实现异步非阻塞处理
+ * - 容错设计：多层降级策略确保服务可用性
+ * - 性能优化：并行执行多路检索提升响应速度
+ * - 可配置性：支持通过配置文件调整检索参数
  */
-@Service
+@Service // Spring注解：标记这是一个服务层组件
 public class RagService {
 
+    // 创建日志记录器，用于记录RAG服务的运行过程
     private static final Logger logger = LoggerFactory.getLogger(RagService.class);
-
-    private final ChatClient chatClient;
-    private final VectorStore vectorStore;
-    private final ObjectMapper objectMapper;
-    // RRF 算法常数 k，工业界通常取 60
+    // RRF算法常数k，工业界通常取60，用于平衡不同排名位置的权重
     private static final double RRF_K = 60.0;
-
+    // 依赖注入的核心服务组件
+    private final ChatClient chatClient; // AI聊天客户端，用于LLM重排序
+    private final VectorStore vectorStore; // 向量存储，用于语义检索
+    private final ObjectMapper objectMapper; // JSON对象映射器，用于解析LLM响应
+    // 文档切片数据访问接口，用于全文检索
+    private final DocumentChunkMapper documentChunkMapper;
+    // 重排序提示词模板资源文件
     @Value("classpath:/static/rerank-prompt.st")
     private Resource rerankPromptResource;
-
-    // RAG 检索配置参数
-    @Value("${ai.rag.topK:8}")
+    // RAG检索配置参数 - 可通过配置文件调整
+    @Value("${ai.rag.topK:8}") // 默认检索前8个最相关的文档
     private int ragTopK;
-
-    @Value("${ai.rag.similarityThreshold:0.4}")
+    @Value("${ai.rag.similarityThreshold:0.4}") // 默认相似度阈值0.4
     private double ragSimilarityThreshold;
-    // 新增：注入 Mapper 用于全文检索
-    private final DocumentChunkMapper documentChunkMapper;
 
+    /**
+     * 构造函数 - 依赖注入
+     * <p>
+     * Spring会自动注入所需的依赖组件
+     *
+     * @param chatClient          AI聊天客户端
+     * @param vectorStore         向量存储服务
+     * @param documentChunkMapper 文档切片数据访问接口
+     * @param objectMapper        JSON对象映射器
+     */
     public RagService(ChatClient chatClient, VectorStore vectorStore, DocumentChunkMapper documentChunkMapper, ObjectMapper objectMapper) {
         this.chatClient = chatClient;
         this.vectorStore = vectorStore;

@@ -1,26 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Maven项目配置文件：定义项目的基本信息、依赖关系和构建配置 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <!-- Maven模型版本：固定为4.0.0 -->
     <modelVersion>4.0.0</modelVersion>
+    <!-- 项目组织标识：通常是公司或组织的域名倒写 -->
     <groupId>org.zerolg</groupId>
+    <!-- 项目唯一标识：项目名称 -->
     <artifactId>aidemo2</artifactId>
+    <!-- 项目版本：0.0.1-SNAPSHOT表示开发版本 -->
     <version>0.0.1-SNAPSHOT</version>
 
+    <!-- 继承Spring Boot父项目：提供依赖管理和默认配置 -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
+        <!-- Spring Boot版本：3.3.5 -->
         <version>3.3.5</version>
     </parent>
 
+    <!-- 项目属性配置 -->
     <properties>
+        <!-- Java版本：使用Java 17 -->
         <java.version>17</java.version>
+        <!-- Spring AI版本：用于AI功能集成 -->
         <spring-ai.version>1.0.0</spring-ai.version>
+        <!-- 项目源码编码：UTF-8 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- 项目报告输出编码：UTF-8 -->
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
+    <!-- 依赖管理：统一管理依赖版本，避免版本冲突 -->
     <dependencyManagement>
         <dependencies>
+            <!-- Spring AI BOM：统一管理Spring AI相关依赖的版本 -->
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
@@ -31,39 +45,48 @@
         </dependencies>
     </dependencyManagement>
 
+    <!-- 项目依赖：实际使用的第三方库 -->
     <dependencies>
 
+        <!-- Spring Boot Actuator：提供应用监控和管理端点 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Spring Boot Web：提供Web开发功能，包括REST API -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- 阿里云通义千问AI集成：提供AI对话功能 -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
             <version>1.1.0.0-M5</version>
         </dependency>
+
+        <!-- Spring AOP：面向切面编程，用于实现横切关注点如日志、事务等 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
-        <!-- Lombok -->
+        <!-- Lombok：自动生成getter/setter等样板代码，简化开发 -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
 
-  <!--      <dependency>
+        <!--      <!-- 本地Ollama AI模型集成（已注释）：可用于本地部署的AI模型 -->
+        <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
         </dependency>-->
+
+        <!-- Spring AI聊天记忆功能：实现对话上下文记忆 -->
         <!-- https://mvnrepository.com/artifact/org.springframework.ai/spring-ai-autoconfigure-model-chat-memory -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
@@ -71,103 +94,99 @@
             <version>1.0.0</version>
         </dependency>
 
-        <!-- PGVector Store (Core) -->
+        <!-- PGVector向量数据库：用于存储和检索文档向量，实现语义搜索 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-pgvector-store</artifactId>
         </dependency>
 
-        <!-- Spring JDBC (required by PGVector) -->
+        <!-- Spring JDBC：数据库访问层，PGVector依赖此组件 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
-        <!-- PostgreSQL Driver -->
+        <!-- PostgreSQL数据库驱动：连接PostgreSQL数据库 -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Flyway: 数据库迁移工具 -->
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
-        </dependency>
-
-        <!-- Flyway PostgreSQL 支持 -->
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-database-postgresql</artifactId>
-        </dependency>
-
+        <!-- Spring DotEnv：从.env文件加载环境变量配置 -->
         <dependency>
             <groupId>me.paulschwarz</groupId>
             <artifactId>spring-dotenv</artifactId>
             <version>4.0.0</version>
         </dependency>
 
-        <!-- Redis 依赖：用于会话存储 -->
-        <!-- Spring Data Redis: 提供 RedisTemplate 和 Redis 操作抽象 -->
+        <!-- Redis 相关依赖：用于缓存和会话存储 -->
+        <!-- Spring Data Redis: 提供 RedisTemplate 和 Redis 操作抽象层 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- Lettuce 连接池：高性能 Redis 客户端，支持连接池和异步操作 -->
+        <!-- Apache Commons Pool2：Redis连接池，提高Redis连接性能和稳定性 -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
-        <!-- Jackson Databind: JSON 序列化/反序列化，用于消息对象存储 -->
+        <!-- Jackson JSON处理相关依赖 -->
+        <!-- Jackson Databind: JSON序列化/反序列化核心库，用于对象与JSON互转 -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- Jackson 时间模块：支持 Java 8 时间类型序列化 -->
+        <!-- Jackson JSR310时间模块：支持Java 8时间API（LocalDateTime等）的JSON序列化 -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
-        <!-- MyBatis Plus: 用于数据库操作 -->
+        <!-- MyBatis Plus：增强版MyBatis ORM框架，简化数据库操作 -->
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>3.5.9</version>
         </dependency>
 
-        <!-- Apache Tika: 用于文档解析 -->
+        <!-- Apache Tika文档解析库：用于解析各种格式的文档（PDF、Word、Excel等） -->
+        <!-- Tika核心库：提供文档类型检测和元数据提取功能 -->
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>
             <version>2.9.2</version>
         </dependency>
+        <!-- Tika标准解析器包：包含常见文档格式的解析器 -->
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-parsers-standard-package</artifactId>
             <version>2.9.2</version>
         </dependency>
 
-        <!-- Validation API: 用于参数验证 -->
+        <!-- Spring Boot参数验证：提供@Valid、@NotNull等注解进行参数校验 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
     </dependencies>
 
+    <!-- Maven仓库配置：指定依赖下载源 -->
     <repositories>
+        <!-- Spring里程碑版本仓库：获取Spring的预发布版本 -->
         <repository>
             <id>spring-milestones</id>
             <name>Spring Milestones</name>
             <url>https://repo.spring.io/milestone</url>
             <snapshots>
+                <!-- 不下载快照版本 -->
                 <enabled>false</enabled>
             </snapshots>
         </repository>
+        <!-- Maven中央仓库：主要的依赖下载源 -->
         <repository>
             <id>maven-central</id>
             <name>Maven Central</name>

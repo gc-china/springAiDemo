@@ -6,7 +6,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.zerolg.aidemo2.audit.entity.ToolExecutionAuditEntity;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -36,8 +36,8 @@ public interface ToolExecutionAuditMapper extends BaseMapper<ToolExecutionAuditE
      * 根据时间范围查询审计记录
      */
     @Select("SELECT * FROM tool_execution_audit WHERE start_time BETWEEN #{startTime} AND #{endTime} ORDER BY start_time DESC LIMIT #{limit} OFFSET #{offset}")
-    List<ToolExecutionAuditEntity> selectByTimeRange(@Param("startTime") LocalDateTime startTime,
-                                                     @Param("endTime") LocalDateTime endTime,
+    List<ToolExecutionAuditEntity> selectByTimeRange(@Param("startTime") Instant startTime,
+                                                     @Param("endTime") Instant endTime,
                                                      @Param("limit") int limit,
                                                      @Param("offset") int offset);
 
@@ -58,7 +58,7 @@ public interface ToolExecutionAuditMapper extends BaseMapper<ToolExecutionAuditE
      */
     @Select("SELECT tool_name, COUNT(*) as usage_count FROM tool_execution_audit " +
             "WHERE start_time >= #{startTime} GROUP BY tool_name ORDER BY usage_count DESC")
-    List<Map<String, Object>> getToolUsageStatistics(@Param("startTime") LocalDateTime startTime);
+    List<Map<String, Object>> getToolUsageStatistics(@Param("startTime") Instant startTime);
 
     /**
      * 获取系统性能统计
@@ -70,5 +70,5 @@ public interface ToolExecutionAuditMapper extends BaseMapper<ToolExecutionAuditE
             "MAX(execution_time_ms) as max_execution_time, " +
             "COUNT(CASE WHEN status = 'ok' THEN 1 END) * 100.0 / COUNT(*) as success_rate " +
             "FROM tool_execution_audit WHERE start_time >= #{startTime}")
-    Map<String, Object> getSystemStatistics(@Param("startTime") LocalDateTime startTime);
+    Map<String, Object> getSystemStatistics(@Param("startTime") Instant startTime);
 }

@@ -39,11 +39,19 @@ public class AuditController {
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "50") int limit) {
 
+        // 修复limit为0的问题
+        if (limit <= 0) {
+            limit = 50;
+        }
+
+        System.out.println("查询审计轨迹: startTime=" + startTime + ", endTime=" + endTime + ", offset=" + offset + ", limit=" + limit);
+
         AuditQuery query = new AuditQuery(
                 sessionId, userId, toolName, statuses, startTime, endTime, offset, limit
         );
 
         List<ToolExecutionAudit> results = auditService.queryAuditTrail(query);
+        System.out.println("查询结果数量: " + results.size());
         return ResponseEntity.ok(results);
     }
 
@@ -63,6 +71,8 @@ public class AuditController {
     public ResponseEntity<Map<String, Object>> getAuditStatistics(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant since) {
 
+        System.out.println("获取审计统计: since=" + since);
+
         if (since == null) {
             since = Instant.now().minusSeconds(24 * 60 * 60); // 默认最近24小时
         }
@@ -70,6 +80,8 @@ public class AuditController {
         // 查询最近的审计记录
         AuditQuery query = new AuditQuery(null, null, null, null, since, null, 0, 1000);
         List<ToolExecutionAudit> audits = auditService.queryAuditTrail(query);
+
+        System.out.println("统计查询结果数量: " + audits.size());
 
         // 计算统计信息
         Map<String, Object> statistics = Map.of(

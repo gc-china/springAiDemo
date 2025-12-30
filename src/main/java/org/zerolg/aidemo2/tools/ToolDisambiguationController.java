@@ -68,10 +68,7 @@ public class ToolDisambiguationController {
                 "当前配置状态", "已优化 - 只启用最佳工具",
                 "启用的工具类型", hasIntegrated ? "IntegratedInventoryTools (集成审计)" : "未检测到推荐工具",
                 "工具状态检查", Map.of(
-                        "IntegratedInventoryTools", hasIntegrated ? "✅ 已启用 (推荐)" : "❌ 未启用",
-                        "AuditedInventoryTools", hasAudited ? "⚠️ 已启用 (建议禁用)" : "✅ 已禁用",
-                        "EnhancedInventoryTools", hasEnhanced ? "⚠️ 已启用 (建议禁用)" : "✅ 已禁用",
-                        "InventoryTools", hasBasic ? "⚠️ 已启用 (建议禁用)" : "✅ 已禁用"
+                        "IntegratedInventoryTools", hasIntegrated ? "✅ 已启用 (推荐)" : "❌ 未启用"
                 ),
                 "推荐使用的工具", Map.of(
                         "库存查询", "integratedQueryStock - 集成参数清洗和审计的智能查询",

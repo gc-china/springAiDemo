@@ -36,4 +36,9 @@ public interface ParameterChainRecorder {
      * 获取最常见的参数转换
      */
     List<org.zerolg.aidemo2.audit.model.ParameterTransformation> getMostCommonTransformations(String toolName, int limit);
+
+    /**
+     * 根据执行ID获取参数链
+     */
+    ParameterChain getParameterChain(String executionId);
 }

@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -46,5 +46,5 @@ public class ParameterChainEntity {
     private Integer stepOrder;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 }

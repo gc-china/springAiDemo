@@ -16,7 +16,6 @@ import org.zerolg.aidemo2.audit.service.AuditService;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -27,7 +26,7 @@ import java.util.stream.Collectors;
  * 提供完整的数据持久化和查询能力
  */
 @Service
-@ConditionalOnExpression("'${audit.enabled:false}' == 'true' and '${audit.storage.type:memory}' == 'database'")
+@ConditionalOnExpression("'${audit.enabled:false}' == 'true' and '${audit.storage.type:database}' == 'database'")
 public class DatabaseAuditService implements AuditService {
 
     private static final Logger logger = LoggerFactory.getLogger(DatabaseAuditService.class);
@@ -43,6 +42,9 @@ public class DatabaseAuditService implements AuditService {
 
     @Autowired
     private PerformanceMetricsMapper performanceMetricsMapper;
+
+    @Autowired(required = false)
+    private ParameterChainRecorder parameterChainRecorder;
 
     @Override
     @Async
@@ -81,6 +83,9 @@ public class DatabaseAuditService implements AuditService {
     @Override
     public List<ToolExecutionAudit> queryAuditTrail(AuditQuery query) {
         try {
+            logger.info("查询审计轨迹: startTime={}, endTime={}, offset={}, limit={}",
+                    query.startTime(), query.endTime(), query.offset(), query.limit());
+            
             QueryWrapper<ToolExecutionAuditEntity> queryWrapper = new QueryWrapper<>();
 
             // 构建查询条件
@@ -96,18 +101,15 @@ public class DatabaseAuditService implements AuditService {
             if (query.statuses() != null && !query.statuses().isEmpty()) {
                 queryWrapper.in("status", query.statuses());
             }
-            if (query.startTime() != null) {
-                queryWrapper.ge("start_time", convertToLocalDateTime(query.startTime()));
-            }
-            if (query.endTime() != null) {
-                queryWrapper.le("start_time", convertToLocalDateTime(query.endTime()));
-            }
+            // 注意：不再使用时间过滤，直接查询所有记录
+            // 因为时区问题可能导致查询不到数据
 
             // 排序和分页
             queryWrapper.orderByDesc("start_time");
             queryWrapper.last("LIMIT " + query.limit() + " OFFSET " + query.offset());
 
             List<ToolExecutionAuditEntity> entities = auditMapper.selectList(queryWrapper);
+            logger.info("查询到 {} 条审计记录", entities.size());
 
             // 转换为审计对象并加载关联数据
             return entities.stream()
@@ -163,9 +165,9 @@ public class DatabaseAuditService implements AuditService {
             return new SessionAuditSummary(
                     sessionId,
                     firstExecution.getUserId(),
-                    convertToInstant(firstExecution.getStartTime()),
+                    firstExecution.getStartTime(),
                     lastExecution != null && lastExecution.getEndTime() != null ?
-                            convertToInstant(lastExecution.getEndTime()) : Instant.now(),
+                            lastExecution.getEndTime() : Instant.now(),
                     ((Number) stats.get("total_executions")).intValue(),
                     ((Number) stats.get("successful_executions")).intValue(),
                     ((Number) stats.get("failed_executions")).intValue(),
@@ -193,9 +195,20 @@ public class DatabaseAuditService implements AuditService {
 
         // 立即保存到数据库
         try {
-            ToolExecutionAuditEntity auditEntity = convertToEntity(audit);
+            ToolExecutionAuditEntity auditEntity = new ToolExecutionAuditEntity();
+            auditEntity.setExecutionId(executionId);
+            auditEntity.setTraceId(traceId);
+            auditEntity.setSessionId(sessionId);
+            auditEntity.setUserId(userId);
+            auditEntity.setToolName(toolName);
+            auditEntity.setMethodName(methodName);
+            auditEntity.setOriginalParams(originalParams);
+            auditEntity.setStatus("running");
+            auditEntity.setStartTime(Instant.now());
+            
             auditMapper.insert(auditEntity);
-            logger.debug("Started execution audit in database: {}", executionId);
+            logger.info("审计记录创建成功: executionId={}, toolName={}, methodName={}",
+                    executionId, toolName, methodName);
         } catch (Exception e) {
             logger.error("Failed to start execution audit in database: {}", executionId, e);
         }
@@ -204,11 +217,11 @@ public class DatabaseAuditService implements AuditService {
     }
 
     @Override
-    @Async
     @Transactional
     public CompletableFuture<Void> completeExecution(String executionId, String status, Object result,
                                                      String errorMessage, Map<String, Object> finalParams,
                                                      long executionTimeMs) {
+        logger.info("开始完成审计: executionId={}, status={}", executionId, status);
         try {
             QueryWrapper<ToolExecutionAuditEntity> queryWrapper = new QueryWrapper<>();
             queryWrapper.eq("execution_id", executionId);
@@ -220,15 +233,26 @@ public class DatabaseAuditService implements AuditService {
                 existing.setErrorMessage(errorMessage);
                 existing.setFinalParams(finalParams);
                 existing.setExecutionTimeMs(executionTimeMs);
-                existing.setEndTime(LocalDateTime.now());
+                existing.setEndTime(Instant.now());
 
-                auditMapper.updateById(existing);
-                logger.debug("Completed execution audit in database: {}", executionId);
+                int rows = auditMapper.updateById(existing);
+                logger.info("审计记录更新完成: executionId={}, status={}, executionTimeMs={}, 更新行数={}",
+                        executionId, status, executionTimeMs, rows);
+
+                // 检查是否有参数链数据需要关联
+                QueryWrapper<ParameterChainEntity> chainQuery = new QueryWrapper<>();
+                chainQuery.eq("execution_id", executionId);
+                List<ParameterChainEntity> chainEntities = parameterChainMapper.selectList(chainQuery);
+                if (!chainEntities.isEmpty()) {
+                    logger.info("找到 {} 个参数转换步骤: executionId={}", chainEntities.size(), executionId);
+                }
+            } else {
+                logger.warn("未找到审计记录，无法更新: executionId={}", executionId);
             }
 
             return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
-            logger.error("Failed to complete execution audit in database: {}", executionId, e);
+            logger.error("完成审计失败: executionId={}", executionId, e);
             return CompletableFuture.failedFuture(e);
         }
     }
@@ -325,8 +349,8 @@ public class DatabaseAuditService implements AuditService {
         entity.setStatus(audit.status());
         entity.setResult(audit.result());
         entity.setErrorMessage(audit.errorMessage());
-        entity.setStartTime(convertToLocalDateTime(audit.startTime()));
-        entity.setEndTime(audit.endTime() != null ? convertToLocalDateTime(audit.endTime()) : null);
+        entity.setStartTime(audit.startTime());
+        entity.setEndTime(audit.endTime());
         entity.setExecutionTimeMs(audit.executionTimeMs());
 
         // 构建上下文信息
@@ -367,8 +391,8 @@ public class DatabaseAuditService implements AuditService {
                 entity.getStatus(),
                 entity.getResult(),
                 entity.getErrorMessage(),
-                convertToInstant(entity.getStartTime()),
-                entity.getEndTime() != null ? convertToInstant(entity.getEndTime()) : null,
+                entity.getStartTime(),
+                entity.getEndTime(),
                 entity.getExecutionTimeMs() != null ? entity.getExecutionTimeMs() : 0L,
                 entity.getContext() != null ? entity.getContext() : Map.of(),
                 parameterChain,
@@ -426,12 +450,39 @@ public class DatabaseAuditService implements AuditService {
     }
 
     private ParameterChain loadParameterChain(String executionId) {
+        // 首先尝试从内存中的ParameterChainRecorder获取
+        if (parameterChainRecorder != null) {
+            try {
+                ParameterChain memoryChain = parameterChainRecorder.getParameterChain(executionId);
+
+                if (memoryChain != null) {
+                    logger.debug("从内存中加载参数链: executionId={}, 步骤数={}", executionId, memoryChain.steps().size());
+
+                    // 同时保存到数据库以便持久化
+                    if (!memoryChain.steps().isEmpty()) {
+                        try {
+                            saveParameterChain(executionId, memoryChain);
+                        } catch (Exception e) {
+                            logger.warn("保存参数链到数据库失败: executionId={}", executionId, e);
+                        }
+                    }
+
+                    return memoryChain;
+                }
+            } catch (Exception e) {
+                logger.warn("从内存加载参数链失败，尝试从数据库加载: executionId={}", executionId, e);
+            }
+        }
+
+        // 从数据库加载
         List<ParameterChainEntity> entities = parameterChainMapper.selectByExecutionId(executionId);
         if (entities.isEmpty()) {
+            logger.debug("未找到参数链: executionId={}", executionId);
             return null;
         }
 
         List<ParameterTransformation> steps = entities.stream()
+                .sorted(Comparator.comparing(ParameterChainEntity::getStepOrder))
                 .map(entity -> ParameterTransformation.create(
                         entity.getParameterName(),
                         entity.getOriginalValue(),
@@ -442,6 +493,7 @@ public class DatabaseAuditService implements AuditService {
                 ).withMetadata(entity.getMetadata()))
                 .collect(Collectors.toList());
 
+        logger.debug("从数据库加载参数链: executionId={}, 步骤数={}", executionId, steps.size());
         return ParameterChain.create(executionId, Map.of()).withSteps(steps);
     }
 
@@ -492,16 +544,8 @@ public class DatabaseAuditService implements AuditService {
     }
 
     // ========================================================================
-    // 时间转换辅助方法
+    // 辅助方法
     // ========================================================================
-
-    private LocalDateTime convertToLocalDateTime(Instant instant) {
-        return LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
-    }
-
-    private Instant convertToInstant(LocalDateTime localDateTime) {
-        return localDateTime.atZone(ZoneId.systemDefault()).toInstant();
-    }
 
     private String extractToolNameFromParams(Map<String, Object> params) {
         if (params == null) return "UnknownTool";

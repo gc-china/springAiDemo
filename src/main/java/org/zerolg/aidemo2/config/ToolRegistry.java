@@ -51,8 +51,14 @@ public class ToolRegistry {
         // 直接返回所有 Function Bean 的名称
         // 注意：Spring AI 会自动处理 @Description，如果这里过滤错了，工具就丢了
         List<String> toolNames = new ArrayList<>(functionBeans.keySet());
+
+        logger.info("========== 工具注册 ==========");
+        logger.info(">>> 🔧 自动发现 {} 个工具:", toolNames.size());
+        for (String name : toolNames) {
+            logger.info("  - {}", name);
+        }
+        logger.info("==============================");
         
-        System.out.println(">>> 🔧 自动发现 " + toolNames.size() + " 个工具: " + toolNames);
         return toolNames;
     }
 

@@ -7,8 +7,7 @@ import org.zerolg.aidemo2.common.ToolExecutionResult;
 import org.zerolg.aidemo2.correction.annotation.ParameterCorrection;
 import org.zerolg.aidemo2.service.InventoryService;
 import org.zerolg.aidemo2.service.MockSearchService;
-import org.zerolg.aidemo2.tools.EnhancedInventoryTools.EnhancedTransferRequest;
-
+import org.zerolg.aidemo2.tools.IntegratedInventoryTools.EnhancedTransferRequest;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 

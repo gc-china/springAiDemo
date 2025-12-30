@@ -33,7 +33,13 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Frontend ###
 /web/spring-aidemo-frontend/node_modules/
+
+### Docker数据目录（如果意外生成） ###
 /pgdata/
-/pgdata/
-/pgdata/
+/redis-data/
+
+### 上传文件目录 ###
+/uploads/

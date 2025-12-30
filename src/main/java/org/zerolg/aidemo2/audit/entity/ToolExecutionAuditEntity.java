@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.*;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -51,10 +51,10 @@ public class ToolExecutionAuditEntity {
     private String errorMessage;
 
     @TableField("start_time")
-    private LocalDateTime startTime;
+    private Instant startTime;
 
     @TableField("end_time")
-    private LocalDateTime endTime;
+    private Instant endTime;
 
     @TableField("execution_time_ms")
     private Long executionTimeMs;
@@ -63,8 +63,8 @@ public class ToolExecutionAuditEntity {
     private Map<String, Object> context;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 }

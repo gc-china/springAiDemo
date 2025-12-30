@@ -6,7 +6,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.zerolg.aidemo2.audit.entity.PerformanceMetricsEntity;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -33,7 +33,7 @@ public interface PerformanceMetricsMapper extends BaseMapper<PerformanceMetricsE
             "AVG(parameter_transformations) as avg_transformations, " +
             "COUNT(CASE WHEN cache_hit = true THEN 1 END) * 100.0 / COUNT(*) as cache_hit_rate " +
             "FROM performance_metrics WHERE created_at >= #{startTime}")
-    Map<String, Object> getPerformanceStatistics(@Param("startTime") LocalDateTime startTime);
+    Map<String, Object> getPerformanceStatistics(@Param("startTime") Instant startTime);
 
     /**
      * 查询慢执行记录

@@ -6,7 +6,7 @@ import org.zerolg.aidemo2.correction.annotation.ParameterCorrection;
 import org.zerolg.aidemo2.correction.annotation.PositiveNumber;
 import org.zerolg.aidemo2.service.stock.EnhancedStockQueryService;
 import org.zerolg.aidemo2.service.stock.EnhancedTransferService;
-import org.zerolg.aidemo2.tools.EnhancedInventoryTools.*;
+import org.zerolg.aidemo2.tools.IntegratedInventoryTools.*;
 
 import java.util.HashMap;
 import java.util.Map;

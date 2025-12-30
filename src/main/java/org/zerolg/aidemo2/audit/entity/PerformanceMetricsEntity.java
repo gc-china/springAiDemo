@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.*;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -36,5 +36,5 @@ public class PerformanceMetricsEntity {
     private Map<String, Object> customMetrics;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 }
